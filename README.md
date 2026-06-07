@@ -13,4 +13,5 @@ From the repository root:
 ```bash
 cargo run --example simple_client
 cargo run --example simple_spot_client
+cargo run --example burst_client
 ```
