@@ -1,20 +1,22 @@
 use serde::{Deserialize, Serialize};
-use crate::lightpool_types::block::VerifiedBlock;
+use crate::lightpool_types::block::ReceiptBlock;
 use crate::lightpool_types::address_type::Address;
 use crate::lightpool_types::object::ObjectID;
 // use crate::lightpool_types::OrderId;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Message {
-    NewBlock(VerifiedBlock),
+    NewBlock(ReceiptBlock),
+    ReceiptBlock(ReceiptBlock),
     User(Vec<UserUpdate>),
     Trades(Vec<Trade>),
     Error(String),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Subscription {
     NewBlocks,
+    ReceiptBlocks,
     User(Address),
     Trades(Address),
 }

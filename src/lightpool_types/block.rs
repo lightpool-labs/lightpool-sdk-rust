@@ -2,10 +2,9 @@ use crate::lightpool_types::crypto::Digest;
 use crate::lightpool_types::effects::TransactionResult;
 use serde::{Deserialize, Serialize};
 
-/// VerifiedBlock represents a verified block that has been validated and contains
-/// the block data along with all transaction results from execution
+/// Receipt-oriented view of a committed block: each transaction with its receipt.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct VerifiedBlock {
+pub struct ReceiptBlock {
     /// Block number
     pub block_num: u64,
     /// Digest of the block
@@ -14,8 +13,8 @@ pub struct VerifiedBlock {
     pub transaction_outputs: Vec<TransactionResult>,
 }
 
-impl VerifiedBlock {
-    /// Create a new VerifiedBlock
+impl ReceiptBlock {
+    /// Create a new ReceiptBlock
     pub fn new(
         block_num: u64,
         digest: Digest,

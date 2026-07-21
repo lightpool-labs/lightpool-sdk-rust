@@ -25,7 +25,7 @@ pub use effects::{
     TransactionReceipt, TransactionEvent, EventType, EventData, ExecutionStatus,
     TransactionEffect, TransactionResult
 };
-pub use block::VerifiedBlock;
+pub use block::ReceiptBlock;
 pub use token_actions::{
     CreateTokenParams, MintParams, TransferParams,
 };
