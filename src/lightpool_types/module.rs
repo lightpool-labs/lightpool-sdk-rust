@@ -10,6 +10,7 @@ impl Module {
     pub const ACCOUNT: Module = Module(0x01);
     pub const TOKEN: Module = Module(0x02);
     pub const SPOT: Module = Module(0x03);
+    pub const EVENT_CONTRACT: Module = Module(0x04);
 
     pub const fn new(value: u8) -> Self {
         Self(value)

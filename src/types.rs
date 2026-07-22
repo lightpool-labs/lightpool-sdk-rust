@@ -14,7 +14,7 @@ pub struct SubmitTransactionResponse {
 /// Parameters for submitting a transaction via RPC
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SubmitTransactionParams {
-    /// Verified transaction
+    /// Signed transaction
     pub tx: crate::lightpool_types::SignedTransaction,
 }
 

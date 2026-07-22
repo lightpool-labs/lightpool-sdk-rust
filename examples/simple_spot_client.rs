@@ -1,13 +1,13 @@
 use lightpool_sdk::{
     LightPoolClient, TransactionBuilder, ActionBuilder, Signer,
+    Address, ContractAddress,
     CreateTokenParams,
     extract_token_address_from_events,
-    balance_object_id, token_address_from_contract,
-    print_receipt_json,
-    CreateMarketParams, UpdateMarketParams, PlaceOrderParams, CancelOrderParams,
-    OrderSide, TimeInForce, OrderParamsType, MarketState, SideBookSize, TOKEN_SCALE,
+    balance_object_id, print_receipt_json,
+    CreateMarketParams, UpdateMarketParams, PlaceOrderParams, CancelOrderParams, UpdateOrderParams,
+    OrderSide, TimeInForce, OrderParamsType, MarketState, SegmentSize, TOKEN_SCALE,
     extract_market_address_from_events,
-    extract_order_id_from_events, print_spot_receipt_json, spot_market_id,
+    extract_order_id_from_events, print_spot_receipt_json,
 };
 use std::time::Duration;
 use env_logger::Env;
@@ -138,8 +138,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let market_create_params = CreateMarketParams {
         name: "BTC/USDT".into(),
-        base_token: token_address_from_contract(btc_token_address),
-        quote_token: token_address_from_contract(usdt_token_address),
+        base_token: btc_token_address,
+        quote_token: usdt_token_address,
         min_order_size: 100_000,
         tick_size: 1_000_000,
         maker_fee_bps: 10,
@@ -147,7 +147,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         allow_market_orders: true,
         state: MarketState::Active,
         limit_order: true,
-        side_book_size: SideBookSize::Large,
+        side_book_size: SegmentSize::Large,
+        creator: trader1_address,
     };
 
     let market_create_action = ActionBuilder::create_market(market_create_params)?;
@@ -191,11 +192,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tif: TimeInForce::GTC,
         },
         limit_price: 50_000_000_000,
+        token_address: btc_token_address,
     };
 
     let sell_order_action = ActionBuilder::place_order(
         market_address,
-        btc_balance_id,
         sell_order_params,
     )?;
 
@@ -238,11 +239,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             slippage: 100,
         },
         limit_price: 50_000_000_000,
+        token_address: usdt_token_address,
     };
 
     let market_buy_action = ActionBuilder::place_order(
         market_address,
-        usdt_balance_id,
         market_buy_params,
     )?;
 
@@ -279,11 +280,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tif: TimeInForce::GTC,
         },
         limit_price: 50_000_000_000,
+        token_address: usdt_token_address,
     };
 
     let buy_order_action = ActionBuilder::place_order(
         market_address,
-        usdt_balance_id,
         buy_order_params,
     )?;
 
@@ -313,18 +314,53 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // Step 7: Cancel remaining sell order (trader1 cancels as seller)
-    println!("\nStep 7: Cancelling sell order (trader1 cancels as seller)");
-    println!("----------------------------------------------------------");
+    // Step 7: Update remaining sell order size (trader1 reduces from 5 BTC to 4.5 BTC)
+    println!("\nStep 7: Updating sell order size (trader1 reduces to 4.5 BTC total)");
+    println!("--------------------------------------------------------------------");
 
     let Some(sell_order_id) = sell_order_id else {
-        println!("   ERROR: No sell order id available to cancel!");
+        println!("   ERROR: No sell order id available to update!");
         return Ok(());
     };
 
+    let update_order_action = ActionBuilder::update_order(
+        market_address,
+        UpdateOrderParams {
+            order_id: sell_order_id,
+            amount: 4_500_000,
+            token_address: btc_token_address,
+        },
+    )?;
+
+    let update_order_tx = TransactionBuilder::new()
+        .sender(trader1_address)
+        .expiration(u64::MAX)
+        .add_action(update_order_action)
+        .build_and_sign_only(&trader1_signer)?;
+
+    match client.submit_transaction(update_order_tx).await {
+        Ok(response) => {
+            print_spot_receipt_json(&response.receipt);
+
+            if response.receipt.is_success() {
+                println!("   Sell order updated successfully!");
+                println!("   Updated order ID: {}", sell_order_id);
+                println!("   New total size: 4.5 BTC (4 BTC already filled, 0.5 BTC remaining)");
+            } else {
+                println!("   ERROR: Sell order update failed!");
+            }
+        }
+        Err(e) => {
+            println!("   ERROR: Failed to submit update order transaction: {}", e);
+        }
+    }
+
+    // Step 8: Cancel remaining sell order (trader1 cancels as seller)
+    println!("\nStep 8: Cancelling sell order (trader1 cancels as seller)");
+    println!("----------------------------------------------------------");
+
     let cancel_order_action = ActionBuilder::cancel_order(
         market_address,
-        spot_market_id(market_address),
         CancelOrderParams {
             order_id: sell_order_id,
         },
@@ -352,8 +388,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // Step 8: Update market parameters
-    println!("\nStep 8: Updating market parameters");
+    // Step 9: Update market parameters
+    println!("\nStep 9: Updating market parameters");
     println!("-----------------------------------");
 
     let market_update_params = UpdateMarketParams {
@@ -399,12 +435,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("4. Placed sell order (trader1 sells 5 BTC at 50,000 USDT)");
     println!("5. Placed market buy order (trader2 market buys 2 BTC)");
     println!("6. Placed limit buy order (trader2 buys 2 BTC)");
-    println!("7. Cancelled remaining sell order (trader1 as seller)");
-    println!("8. Updated market parameters");
-    println!("9. Queried BTC and USDT balances for both traders via call");
+    println!("7. Updated sell order size (trader1 reduces to 4.5 BTC total)");
+    println!("8. Cancelled remaining sell order (trader1 as seller)");
+    println!("9. Updated market parameters");
+    println!("10. Queried BTC and USDT balances for both traders via call");
 
-    println!("\nStep 9: Querying trader balances via call");
-    println!("-----------------------------------------");
+    println!("\nStep 10: Querying final trader balances via call");
+    print_trader_balances(
+        &client,
+        btc_token_address,
+        usdt_token_address,
+        trader1_address,
+        trader2_address,
+    )
+    .await;
+
+    Ok(())
+}
+
+async fn print_trader_balances(
+    client: &LightPoolClient,
+    btc_token_address: ContractAddress,
+    usdt_token_address: ContractAddress,
+    trader1_address: Address,
+    trader2_address: Address,
+) {
+    println!("\nQuerying trader balances via call");
+    println!("--------------------------------");
 
     for (token_label, token_contract) in [
         ("btc", btc_token_address),
@@ -418,18 +475,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 token_contract,
                 account,
                 GetBalanceParams {},
-            )?;
+            );
 
-            let balance_tx = TransactionBuilder::new()
+            let balance_action = match balance_action {
+                Ok(action) => action,
+                Err(e) => {
+                    println!(
+                        "   ERROR: Failed to build {} {} balance action: {}",
+                        trader_label, token_label, e
+                    );
+                    continue;
+                }
+            };
+
+            let balance_tx = match TransactionBuilder::new()
+                .account(account)
                 .expiration(u64::MAX)
                 .add_action(balance_action)
-                .build_and_without_sign()?;
+                .build_and_without_sign()
+            {
+                Ok(tx) => tx,
+                Err(e) => {
+                    println!(
+                        "   ERROR: Failed to build {} {} balance call tx: {}",
+                        trader_label, token_label, e
+                    );
+                    continue;
+                }
+            };
 
             match client.call(balance_tx).await {
                 Ok(bytes) => match bincode::deserialize::<GetBalance>(&bytes) {
                     Ok(balance) => {
                         println!(
-                            "{} {} {} {} {}",
+                            "   {} {} balance - total: {}, locked: {}, available: {}",
                             trader_label,
                             token_label,
                             balance.total / TOKEN_SCALE,
@@ -449,6 +528,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-
-    Ok(())
 }

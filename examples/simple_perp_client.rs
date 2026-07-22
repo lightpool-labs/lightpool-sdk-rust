@@ -6,7 +6,6 @@ use lightpool_sdk::{
 };
 use std::time::Duration;
 use env_logger::Env;
-use lightpool_sdk::lightpool_types::address_type::TOKEN_CONTRACT_ADDRESS;
 use lightpool_sdk::perp_events::{
     print_perp_receipt_json,
 };
@@ -83,10 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         to: trader1_address,
     };
 
-    let btc_create_action = ActionBuilder::create_token(
-        TOKEN_CONTRACT_ADDRESS,
-        btc_create_params,
-    )?;
+    let btc_create_action = ActionBuilder::create_token(btc_create_params)?;
 
     let btc_create_tx = TransactionBuilder::new()
         .sender(trader1_address)
@@ -126,10 +122,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         to: trader2_address,
     };
 
-    let usdc_create_action = ActionBuilder::create_token(
-        TOKEN_CONTRACT_ADDRESS,
-        usdc_create_params,
-    )?;
+    let usdc_create_action = ActionBuilder::create_token(usdc_create_params)?;
 
     let usdc_create_tx = TransactionBuilder::new()
         .sender(trader2_address)

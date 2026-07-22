@@ -43,9 +43,7 @@ thiserror = "1.0.21"
 hex = "0.4.3"
 base64 = "0.13.0"
 rand = { version = "0.7.3", optional = true }
-
-# Crypto dependencies for internal lightpool_types
-ed25519-dalek = { version = "1.0.1", features = ["batch"] }
+lightpool-crypto = { path = "../lightpool/crates/lightpool-crypto" }
 alloy-primitives = { version = "0.4", features = ["serde"] }
 
 # Utilities

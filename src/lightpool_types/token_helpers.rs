@@ -70,14 +70,41 @@ pub fn balance_object_id(token_contract: ContractAddress, account: Address) -> O
 
 /// Parse a token contract from CLI: decimal index (>= 1) or 8-byte hex (with optional 0x prefix).
 pub fn parse_token_contract(value: &str) -> Result<ContractAddress, String> {
-    let value = value.strip_prefix("0x").unwrap_or(value);
-    if !value.is_empty() && value.chars().all(|c| c.is_ascii_digit()) {
-        let index: u64 = value
+    let trimmed = value.trim();
+    let hex_body = trimmed
+        .strip_prefix("0x")
+        .or_else(|| trimmed.strip_prefix("0X"))
+        .unwrap_or(trimmed);
+    let had_hex_prefix = hex_body.len() < trimmed.len();
+
+    let is_hex = !hex_body.is_empty() && hex_body.chars().all(|c| c.is_ascii_hexdigit());
+
+    // Full 8-byte contract address, e.g. 0200000000000007 or 0x0200000000000007
+    if is_hex && hex_body.len() == ContractAddress::CONTRACT_ADDRESS_LENGTH * 2 {
+        return decode_token_contract_hex(hex_body);
+    }
+
+    // Explicit 0x prefix always means hex, never decimal index.
+    if had_hex_prefix && is_hex {
+        return decode_token_contract_hex(hex_body);
+    }
+
+    // Short decimal token index, e.g. "7"
+    if !hex_body.is_empty() && hex_body.chars().all(|c| c.is_ascii_digit()) {
+        let index: u64 = hex_body
             .parse()
             .map_err(|e| format!("Invalid token contract index: {}", e))?;
         return token_contract(index);
     }
 
+    if is_hex {
+        return decode_token_contract_hex(hex_body);
+    }
+
+    Err(format!("Invalid token contract address: {}", value))
+}
+
+fn decode_token_contract_hex(value: &str) -> Result<ContractAddress, String> {
     let bytes = hex::decode(value).map_err(|e| format!("Invalid token contract hex: {}", e))?;
     if bytes.len() != ContractAddress::CONTRACT_ADDRESS_LENGTH {
         return Err(format!(

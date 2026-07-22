@@ -56,20 +56,19 @@ impl Signer {
         self.secret_key.encode_base64()
     }
     
-    /// Export the secret key as bytes (for compatibility) - SecretKey is 64 bytes
-    pub fn export_secret_key_bytes(&self) -> [u8; 64] {
-        // Get the base64 encoded secret key and decode it back to bytes
+    /// Export the secret key as bytes (32 bytes for secp256k1)
+    pub fn export_secret_key_bytes(&self) -> [u8; 32] {
         let encoded = self.secret_key.encode_base64();
         let decoded = base64::decode(&encoded).unwrap_or_default();
-        let mut bytes = [0u8; 64];
-        if decoded.len() >= 64 {
-            bytes.copy_from_slice(&decoded[..64]);
+        let mut bytes = [0u8; 32];
+        if decoded.len() >= 32 {
+            bytes.copy_from_slice(&decoded[..32]);
         }
         bytes
     }
-    
-    /// Import a signer from secret key bytes (64 bytes for Ed25519)
-    pub fn from_secret_key_bytes(bytes: &[u8; 64]) -> SdkResult<Self> {
+
+    /// Import a signer from secret key bytes (32 bytes for secp256k1)
+    pub fn from_secret_key_bytes(bytes: &[u8; 32]) -> SdkResult<Self> {
         // Convert bytes to base64 and then to SecretKey
         let encoded = base64::encode(bytes);
         let secret_key = SecretKey::decode_base64(&encoded)

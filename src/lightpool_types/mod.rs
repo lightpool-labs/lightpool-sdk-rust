@@ -9,6 +9,10 @@ pub mod token_actions;
 pub mod token_helpers;
 pub mod spot_actions;
 pub mod spot_helpers;
+pub mod event_contract_actions;
+pub mod event_contract_helpers;
+pub mod staking_actions;
+pub mod staking_helpers;
 pub mod order_id;
 pub mod order_id_type;
 pub mod name_type;
@@ -35,8 +39,8 @@ pub use token_helpers::{
     token_object_id, balance_object_id, parse_token_contract,
 };
 pub use spot_actions::{
-    CreateMarketParams, UpdateMarketParams, PlaceOrderParams, CancelOrderParams,
-    OrderSide, TimeInForce, OrderParamsType, MarketState, SideBookSize,
+    CreateMarketParams, UpdateMarketParams, PlaceOrderParams, CancelOrderParams, UpdateOrderParams,
+    OrderSide, TimeInForce, OrderParamsType, MarketState, SegmentSize,
     LimitOrderParams, TriggerOrderParams, MarketOrderParams, TriggerType,
 };
 pub use spot_helpers::{
@@ -45,6 +49,16 @@ pub use spot_helpers::{
     INCREMENT_SLOT as SPOT_INCREMENT_SLOT,
     MARKET_SLOT, BIDS_SLOT, ASKS_SLOT,
 };
+pub use event_contract_actions::{
+    CreateEventContractParams, MintEventContractParams, BurnEventContractParams,
+    ResolveEventContractParams, RedeemEventContractParams,
+    EventContractState,
+};
+pub use event_contract_helpers::event_contract_module_contract;
+pub use staking_actions::{
+    InitStakingConfigParams, BondLplParams, UnbondLplParams, PromoteParams,
+};
+pub use staking_helpers::staking_module_contract;
 pub use order_id::{OrderId, parse_order_id};
 pub use order_id_type::OrderIdType;
 pub use name_type::Name;
@@ -57,6 +71,17 @@ pub const CREATE_MARKET_ACTION: Name = name!("mkt_create");
 pub const UPDATE_MARKET_ACTION: Name = name!("mkt_update");
 pub const PLACE_ORDER_ACTION: Name = name!("ord_place");
 pub const CANCEL_ORDER_ACTION: Name = name!("ord_cancel");
+pub const UPDATE_ORDER_ACTION: Name = name!("ord_update");
+pub const EC_CREATE_ACTION: Name = name!("ec_create");
+pub const EC_MINT_ACTION: Name = name!("ec_mint");
+pub const EC_BURN_ACTION: Name = name!("ec_burn");
+pub const EC_RESOLVE_ACTION: Name = name!("ec_resolve");
+pub const EC_REDEEM_ACTION: Name = name!("ec_redeem");
+pub const INIT_CONFIG_ACTION: Name = name!("init_config");
+pub const BOND_LPL_ACTION: Name = name!("bond_lpl");
+pub const UNBOND_LPL_ACTION: Name = name!("unbond_lpl");
+pub const PROM_PENDING_ACTION: Name = name!("prom_pending");
+pub const PROM_RUNNING_ACTION: Name = name!("prom_running");
 pub const MARKET_INFO_ACTION: Name = name!("mkt_info");
 pub const TOKEN_INFO_ACTION: Name = name!("token_info");
 pub const GET_BALANCE_ACTION: Name = name!("get_balance");

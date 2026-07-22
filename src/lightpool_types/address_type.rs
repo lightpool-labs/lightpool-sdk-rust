@@ -1,11 +1,11 @@
-use std::fmt::{Display, Formatter, Debug};
+use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use std::convert::TryFrom;
 use crate::lightpool_types::crypto::PublicKey;
 use std::fmt;
 
 #[cfg(feature = "serde")]
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -26,13 +26,9 @@ impl Address {
         Self([0u8; Self::ADDRESS_LENGTH])
     }
 
+    /// Generate address from public key (Ethereum: Keccak256 of uncompressed key, last 20 bytes)
     pub fn from_public_key(public_key: &PublicKey) -> Self {
-        use crate::lightpool_types::crypto::Sha512;
-        use crate::lightpool_types::crypto::DalekDigest;
-        let hash = Sha512::digest(&public_key.as_ref());
-        let mut addr_bytes = [0u8; Self::ADDRESS_LENGTH];
-        addr_bytes.copy_from_slice(&hash.as_slice()[0..Self::ADDRESS_LENGTH]);
-        Self(addr_bytes)
+        Self::new(public_key.to_ethereum_address())
     }
 
     pub fn as_bytes(&self) -> &[u8; Self::ADDRESS_LENGTH] {

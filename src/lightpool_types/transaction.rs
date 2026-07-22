@@ -17,7 +17,6 @@ use bincode;
 #[derive(Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Action {
-    pub inputs: Vec<ObjectID>,
     pub contract: ContractAddress,
     pub action: Name,
     pub params: Vec<u8>,
@@ -26,7 +25,6 @@ pub struct Action {
 impl fmt::Debug for Action {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Action")
-            .field("inputs", &self.inputs)
             .field("contract", &self.contract)
             .field("action", &self.action)
             .field("params", &self.params)
@@ -36,28 +34,22 @@ impl fmt::Debug for Action {
 
 impl fmt::Display for Action {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}(inputs: {:?}, contract: {}, params: {:?})",
-            self.action, self.inputs, self.contract, self.params)
+        write!(f, "{}(contract: {}, params: {:?})",
+            self.action, self.contract, self.params)
     }
 }
 
 impl Action {
     pub fn new(
-        inputs: Vec<ObjectID>,
         contract: ContractAddress,
         action: Name,
         params: Vec<u8>,
     ) -> Self {
         Self {
-            inputs,
             contract,
             action,
             params,
         }
-    }
-
-    pub fn inputs(&self) -> &[ObjectID] {
-        &self.inputs
     }
 
     pub fn contract(&self) -> ContractAddress {
@@ -161,17 +153,17 @@ impl Transaction {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SignedTransaction {
     pub transaction: Transaction,
-    pub signatures: Vec<Signature>,
+    pub signature: Signature,
 }
 
 impl SignedTransaction {
     pub fn new(
         transaction: Transaction,
-        signatures: Vec<Signature>,
+        signature: Signature,
     ) -> Self {
         Self {
             transaction,
-            signatures,
+            signature,
         }
     }
 
@@ -179,42 +171,40 @@ impl SignedTransaction {
         &self.transaction
     }
 
+    pub fn signature(&self) -> &Signature {
+        &self.signature
+    }
+
     pub fn inputs(&self) -> Vec<ObjectID> {
-        let mut all_inputs = Vec::new();
-        for action in self.transaction.actions() {
-            all_inputs.extend_from_slice(action.inputs());
-        }
-        all_inputs
+        Vec::new()
     }
 
     pub fn digest(&self) -> Digest {
-        Self::calculate_digest(&self.transaction, &self.signatures)
+        Self::calculate_digest(&self.transaction, &self.signature)
     }
 
     #[cfg(feature = "serialization")]
-    fn calculate_digest(transaction: &Transaction, signatures: &[Signature]) -> Digest {
+    fn calculate_digest(transaction: &Transaction, signature: &Signature) -> Digest {
         let tx_bytes = bincode::serialize(transaction).expect("Failed to serialize transaction");
 
         let mut all_data = tx_bytes;
-        for sig in signatures {
-            let sig_bytes = bincode::serialize(sig).expect("Failed to serialize signature");
-            all_data.extend_from_slice(&sig_bytes);
-        }
+        let sig_bytes = bincode::serialize(signature).expect("Failed to serialize signature");
+        all_data.extend_from_slice(&sig_bytes);
 
         Digest::new_from_bytes(&all_data)
     }
 
     #[cfg(not(feature = "serialization"))]
-    fn calculate_digest(transaction: &Transaction, _signatures: &[Signature]) -> Digest {
+    fn calculate_digest(transaction: &Transaction, _signature: &Signature) -> Digest {
         transaction.digest()
     }
 }
 
+/// In-memory verified transaction. Not serializable; use `SignedTransaction` on the wire.
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct VerifiedTransaction {
-    pub digest: Digest,
-    pub signed_transaction: SignedTransaction,
+    digest: Digest,
+    signed_transaction: SignedTransaction,
 }
 
 impl VerifiedTransaction {

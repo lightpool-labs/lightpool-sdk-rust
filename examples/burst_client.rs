@@ -93,7 +93,6 @@ fn measure_transfer_tx_size(
 
     let transfer_action = ActionBuilder::transfer_token(
         token_contract,
-        sender.balance_id,
         transfer_params,
     ).map_err(|e| format!("Failed to create transfer action: {}", e))?;
 
@@ -202,7 +201,6 @@ async fn fund_burst_senders(
         };
         let transfer_action = ActionBuilder::transfer_token(
             token_contract,
-            creator_balance_id,
             transfer_params,
         ).map_err(|e| format!("Failed to create fund transfer action: {}", e))?;
         tx_builder = tx_builder.add_action(transfer_action);
@@ -224,6 +222,42 @@ async fn fund_burst_senders(
 
     info!("Funded {} sender accounts", senders.len());
     Ok(senders)
+}
+
+async fn fund_burst_senders_with_retry(
+    client: &LightPoolClient,
+    creator: &Signer,
+    token_contract: ContractAddress,
+    sender_count: usize,
+    fund_amount: u64,
+) -> Result<Vec<BurstSender>, String> {
+    const MAX_ATTEMPTS: u32 = 120;
+
+    for attempt in 1..=MAX_ATTEMPTS {
+        match fund_burst_senders(
+            client,
+            creator,
+            token_contract,
+            sender_count,
+            fund_amount,
+        )
+        .await
+        {
+            Ok(senders) => return Ok(senders),
+            Err(error)
+                if error.contains("Balance object not found") && attempt < MAX_ATTEMPTS =>
+            {
+                warn!(
+                    "Fund attempt {}/{} failed (balance not ready): {}",
+                    attempt, MAX_ATTEMPTS, error
+                );
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+
+    Err("Fund transaction failed after waiting for creator balance".to_string())
 }
 
 async fn burst_transfer_task(
@@ -291,7 +325,6 @@ async fn burst_transfer_task(
 
         let transfer_action = ActionBuilder::transfer_token(
             token_contract,
-            sender.balance_id,
             transfer_params,
         ).map_err(|e| format!("Task {}: Failed to create transfer action: {}", task_id, e))?;
 
@@ -299,7 +332,8 @@ async fn burst_transfer_task(
             .sender(sender.address)
             .expiration(expiration)
             .add_action(transfer_action)
-            .build_and_verify(sender.signer.as_ref())
+            //.build_and_sign_only(sender.signer.as_ref())
+            .build_and_without_sign()
             .map_err(|e| format!("Task {}: Failed to build transaction: {}", task_id, e))?;
 
         let tx_bytes = bincode::serialize(&transfer_tx)
@@ -398,9 +432,7 @@ async fn main() -> Result<(), String> {
         create_token(&client, creator.as_ref(), total_supply).await?;
 
     info!("Waiting for token creation to be processed...");
-    tokio::time::sleep(Duration::from_secs(1)).await;
-
-    let senders = fund_burst_senders(
+    let senders = fund_burst_senders_with_retry(
         &client,
         creator.as_ref(),
         token_contract,
@@ -540,7 +572,6 @@ async fn main() -> Result<(), String> {
 
         let final_transfer_action = ActionBuilder::transfer_token(
             token_contract,
-            final_sender.balance_id,
             final_transfer_params,
         ).map_err(|e| format!("Failed to create final transfer action: {}", e))?;
 

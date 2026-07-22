@@ -16,8 +16,8 @@ pub struct MarketCreatedEvent {
     pub bids_id: ObjectID,
     pub asks_id: ObjectID,
     pub name: CompactString,
-    pub base_token: Address,
-    pub quote_token: Address,
+    pub base_token: ContractAddress,
+    pub quote_token: ContractAddress,
     pub min_order_size: u64,
     pub tick_size: u64,
     pub maker_fee_bps: u16,
@@ -99,6 +99,17 @@ pub struct OrderCancelledEvent {
     pub price: u64,
     pub cancelled_amount: u64,
     pub reason: String,
+}
+
+/// Order updated event structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrderUpdatedEvent {
+    pub order_id: OrderId,
+    pub side: OrderSide,
+    pub price: u64,
+    pub old_amount: u64,
+    pub new_amount: u64,
+    pub remaining_amount: u64,
 }
 
 /// Trigger order activated event structure
@@ -278,6 +289,18 @@ pub fn parse_spot_event_data(event_type: &EventType, data: &EventData) -> Option
                             "price": format_token_amount(event.price),
                             "cancelled_amount": format_token_amount(event.cancelled_amount),
                             "reason": event.reason
+                        }))
+                    } else { None }
+                },
+                "order_updated" => {
+                    if let Ok(event) = bincode::deserialize::<OrderUpdatedEvent>(bytes) {
+                        Some(serde_json::json!({
+                            "order_id": event.order_id,
+                            "side": format!("{:?}", event.side),
+                            "price": format_token_amount(event.price),
+                            "old_amount": format_token_amount(event.old_amount),
+                            "new_amount": format_token_amount(event.new_amount),
+                            "remaining_amount": format_token_amount(event.remaining_amount)
                         }))
                     } else { None }
                 },

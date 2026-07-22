@@ -6,7 +6,6 @@ use lightpool_sdk::{
 };
 use std::time::Duration;
 use env_logger::Env;
-use lightpool_sdk::lightpool_types::address_type::TOKEN_CONTRACT_ADDRESS;
 use lightpool_sdk::spark_events::{
     print_spark_receipt_json,
     PoolCreatedEvent as SparkPoolCreatedEvent,
@@ -61,10 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         to: creator_address,
     };
 
-    let usdc_create_action = ActionBuilder::create_token(
-        TOKEN_CONTRACT_ADDRESS,
-        usdc_params,
-    )?;
+    let usdc_create_action = ActionBuilder::create_token(usdc_params)?;
 
     let usdc_create_tx = TransactionBuilder::new()
         .sender(creator_address)
@@ -157,7 +153,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mint_action = ActionBuilder::mint_token(
         usdc_token_address,
-        usdc_token_id,
         mint_params,
     )?;
 

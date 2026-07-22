@@ -1,12 +1,11 @@
 use lightpool_sdk::{
     LightPoolClient, TransactionBuilder, ActionBuilder, Signer,
-    Address, CreateTokenParams, CreateMarketParams, PlaceOrderParams, TransferParams, ObjectID,
+    Address, ContractAddress, CreateTokenParams, CreateMarketParams, PlaceOrderParams, TransferParams, ObjectID,
     TransactionReceipt, EventType, EventData, ExecutionStatus,
-    extract_token_id_from_events, extract_token_address_from_events,
-    extract_balance_id_from_events, extract_market_id_from_events,
-    extract_market_address_from_events, print_receipt_json, print_spot_receipt_json,
-    OrderSide, TimeInForce, OrderParamsType, MarketState, SideBookSize,
-    TokenCreatedEvent, MarketCreatedEvent,
+    extract_market_id_from_events, extract_market_address_from_events,
+    print_receipt_json, print_spot_receipt_json,
+    OrderSide, TimeInForce, OrderParamsType, MarketState, SegmentSize,
+    TokenCreatedEvent, MarketCreatedEvent, token_object_id, balance_object_id,
 };
 use std::time::{Duration, Instant};
 use std::sync::Arc;
@@ -22,7 +21,6 @@ use env_logger::Env;
 use log::{info, warn, error, debug};
 use compact_str::CompactString;
 use rand::Rng;
-use lightpool_sdk::lightpool_types::address_type::{TOKEN_CONTRACT_ADDRESS, SPOT_CONTRACT_ADDRESS};
 
 /// Market filling phases
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -40,7 +38,7 @@ enum MarketPhase {
     author,
     version,
     about,
-    long_about = "Burst client for LightPool spot trading transactions."
+    long_about = "Burst client that fills spot order-book depth then sweeps matching bids/asks."
 )]
 struct SpotBenchmarkCli {
     /// The base address of the node (will generate RPC and mempool addresses from this)
@@ -52,7 +50,7 @@ struct SpotBenchmarkCli {
     num_markets: usize,
 
     /// Number of concurrent tasks for burst trading
-    #[clap(short, long, default_value = "50")]
+    #[clap(short, long, default_value = "2")]
     tasks: usize,
 
     /// Trading rate per task (orders per second)
@@ -76,9 +74,9 @@ struct SpotBenchmarkCli {
 #[derive(Debug, Clone)]
 struct MarketWithBalances {
     market_id: ObjectID,
-    market_address: Address,
-    base_token: Address,        // Base token address (e.g., BTC)
-    quote_token: Address,       // Quote token address (e.g., USDT)
+    market_address: ContractAddress,
+    base_token: ContractAddress,
+    quote_token: ContractAddress,
     sender_base_balance_id: ObjectID,  // Sender's base token balance ID
     sender_quote_balance_id: ObjectID, // Sender's quote token balance ID
     base_price: u64,           // Base price for this market
@@ -96,9 +94,9 @@ struct MarketWithBalances {
 impl MarketWithBalances {
     fn new(
         market_id: ObjectID, 
-        market_address: Address,
-        base_token: Address,
-        quote_token: Address,
+        market_address: ContractAddress,
+        base_token: ContractAddress,
+        quote_token: ContractAddress,
         sender_base_balance_id: ObjectID,
         sender_quote_balance_id: ObjectID,
         base_price: u64, 
@@ -244,9 +242,8 @@ impl MarketWithBalances {
 /// Measure the size of a place order transaction in bytes
 fn measure_place_order_tx_size(
     signer: &Signer,
-    market_address: Address,
-    market_id: ObjectID,
-    balance_id: ObjectID,
+    market_address: ContractAddress,
+    token_address: ContractAddress,
     order_amount: u64,
     price: u64,
 ) -> Result<usize, String> {
@@ -259,12 +256,11 @@ fn measure_place_order_tx_size(
             tif: TimeInForce::GTC,
         },
         limit_price: price,
+        token_address,
     };
     
     let place_order_action = ActionBuilder::place_order(
         market_address,
-        market_id,
-        balance_id,
         order_params,
     ).map_err(|e| format!("Failed to create place order action: {}", e))?;
     
@@ -286,7 +282,7 @@ async fn create_tokens_batch(
     client: &LightPoolClient,
     signers: Vec<Arc<Signer>>,
     num_tokens: usize,
-) -> Result<Vec<(Address, ObjectID, ObjectID)>, String> {
+) -> Result<Vec<(ContractAddress, ObjectID, ObjectID)>, String> {
     info!("Creating {} tokens in a single transaction...", num_tokens);
     
     // Use the first signer for the batch transaction
@@ -304,10 +300,8 @@ async fn create_tokens_batch(
             to: sender_address,
         };
         
-        let create_action = ActionBuilder::create_token(
-            TOKEN_CONTRACT_ADDRESS,
-            create_params,
-        ).map_err(|e| format!("Failed to create token action: {}", e))?;
+        let create_action = ActionBuilder::create_token(create_params)
+            .map_err(|e| format!("Failed to create token action: {}", e))?;
         
         create_actions.push(create_action);
     }
@@ -354,10 +348,11 @@ async fn create_tokens_batch(
             if action_name == "token_created" {
                 if let EventData::Bytes(data) = &event.data {
                     if let Ok(token_created_event) = bincode::deserialize::<TokenCreatedEvent>(data) {
+                        let token_address = token_created_event.token_address;
                         tokens.push((
-                            token_created_event.token_address,
-                            token_created_event.token_id,
-                            token_created_event.balance_id
+                            token_address,
+                            token_object_id(token_address),
+                            balance_object_id(token_address, token_created_event.to),
                         ));
                         token_count += 1;
                     }
@@ -378,7 +373,7 @@ async fn create_tokens_batch(
 async fn create_markets_batch(
     client: &LightPoolClient,
     signers: Vec<Arc<Signer>>,
-    tokens: Vec<(Address, ObjectID, ObjectID)>,
+    tokens: Vec<(ContractAddress, ObjectID, ObjectID)>,
     num_markets: usize,
 ) -> Result<Vec<MarketWithBalances>, String> {
     info!("Creating {} markets in a single transaction...", num_markets);
@@ -413,18 +408,17 @@ async fn create_markets_batch(
             quote_token: quote_token_address,
             min_order_size,
             tick_size,
-            maker_fee_bps: 10,        // 0.1% maker fee
-            taker_fee_bps: 20,        // 0.2% taker fee
+            maker_fee_bps: 10,
+            taker_fee_bps: 20,
             allow_market_orders: true,
             state: MarketState::Active,
             limit_order: true,
-            side_book_size: SideBookSize::Middle,
+            side_book_size: SegmentSize::Middle,
+            creator: sender_address,
         };
-        
-        let market_create_action = ActionBuilder::create_market(
-            SPOT_CONTRACT_ADDRESS,
-            market_create_params,
-        ).map_err(|e| format!("Failed to create market action: {}", e))?;
+
+        let market_create_action = ActionBuilder::create_market(market_create_params)
+            .map_err(|e| format!("Failed to create market action: {}", e))?;
         
         market_actions.push(market_create_action);
     }
@@ -576,17 +570,13 @@ async fn burst_place_order_task(
             }
         };
         
-        // Get market details and select appropriate balance
-        let (market_address, market_id, balance_id) = {
+        let (market_address, token_address) = {
             let market = &markets[market_index];
-            
-            // Select sender's balance ID based on order side
-            let balance_id = match side {
-                OrderSide::Buy => market.sender_quote_balance_id,  // Need sender's quote token balance to buy base token
-                OrderSide::Sell => market.sender_base_balance_id,  // Need sender's base token balance to sell
+            let token_address = match side {
+                OrderSide::Buy => market.quote_token,
+                OrderSide::Sell => market.base_token,
             };
-            
-            (market.market_address, market.market_id, balance_id)
+            (market.market_address, token_address)
         };
         
         // Create order parameters with controlled price and size
@@ -597,13 +587,12 @@ async fn burst_place_order_task(
                 tif: TimeInForce::GTC,
             },
             limit_price: price,    // Controlled price level
+            token_address,
         };
         
         // Build place order action
         let place_order_action = ActionBuilder::place_order(
             market_address,
-            market_id,
-            balance_id,
             order_params,
         ).map_err(|e| format!("Task {}: Failed to create place order action: {}", task_id, e))?;
         
@@ -612,7 +601,7 @@ async fn burst_place_order_task(
             .sender(sender_address)
             .expiration(expiration)
             .add_action(place_order_action)
-            .build_and_verify(&signer)
+            .build_and_sign_only(&signer)
             .map_err(|e| format!("Task {}: Failed to build transaction: {}", task_id, e))?;
         
         // Serialize and send transaction
@@ -674,8 +663,8 @@ async fn main() -> Result<(), String> {
     env_logger::Builder::from_env(Env::default().default_filter_or("info"))
         .init();
     
-    info!("🚀 LightPool Spot Trading Burst Client");
-    info!("======================================");
+    info!("LightPool Spot Depth-Match Burst Client");
+    info!("=======================================");
     info!("Address: {}", cli.address);
     
     // Generate RPC and mempool addresses from base address
@@ -741,7 +730,13 @@ async fn main() -> Result<(), String> {
     // Measure order transaction size
     info!("📏 Measuring place order transaction size...");
     if let Some(first_market) = markets.lock().unwrap().first() {
-        match measure_place_order_tx_size(&signers[0], first_market.market_address, first_market.market_id, first_market.sender_quote_balance_id, cli.order_amount, first_market.base_price) {
+        match measure_place_order_tx_size(
+            &signers[0],
+            first_market.market_address,
+            first_market.quote_token,
+            cli.order_amount,
+            first_market.base_price,
+        ) {
             Ok(size) => {
                 info!("✅ Place order transaction size: {} bytes", size);
                 info!("   Expected bandwidth per task at max rate: {:.2} KB/s", 
@@ -863,7 +858,6 @@ async fn main() -> Result<(), String> {
         
         let final_transfer_action = ActionBuilder::transfer_token(
             final_token_address,
-            final_balance_id,
             final_transfer_params,
         ).map_err(|e| format!("Failed to create final transfer action: {}", e))?;
         

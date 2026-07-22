@@ -1,4 +1,5 @@
 use crate::lightpool_types::address_type::Address;
+use crate::lightpool_types::contract::ContractAddress;
 use crate::lightpool_types::OrderId;
 use compact_str::CompactString;
 use std::fmt;
@@ -33,22 +34,22 @@ impl fmt::Display for MarketState {
 
 /// Preset skip-list depth for a side book.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SideBookSize {
+pub enum SegmentSize {
     Small,
     Middle,
     Large,
 }
 
-impl SideBookSize {
+impl SegmentSize {
     pub const SMALL_SKIP_LEVELS: u8 = 8;
     pub const MIDDLE_SKIP_LEVELS: u8 = 16;
     pub const LARGE_SKIP_LEVELS: u8 = 32;
 
     pub fn skip_levels(self) -> u8 {
         match self {
-            SideBookSize::Small => Self::SMALL_SKIP_LEVELS,
-            SideBookSize::Middle => Self::MIDDLE_SKIP_LEVELS,
-            SideBookSize::Large => Self::LARGE_SKIP_LEVELS,
+            SegmentSize::Small => Self::SMALL_SKIP_LEVELS,
+            SegmentSize::Middle => Self::MIDDLE_SKIP_LEVELS,
+            SegmentSize::Large => Self::LARGE_SKIP_LEVELS,
         }
     }
 }
@@ -57,8 +58,8 @@ impl SideBookSize {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateMarketParams {
     pub name: CompactString,
-    pub base_token: Address,
-    pub quote_token: Address,
+    pub base_token: ContractAddress,
+    pub quote_token: ContractAddress,
     pub min_order_size: u64,
     pub tick_size: u64,
     pub maker_fee_bps: u16,
@@ -66,7 +67,8 @@ pub struct CreateMarketParams {
     pub allow_market_orders: bool,
     pub state: MarketState,
     pub limit_order: bool,
-    pub side_book_size: SideBookSize,
+    pub side_book_size: SegmentSize,
+    pub creator: Address,
 }
 
 /// Market update parameters
@@ -124,6 +126,7 @@ pub struct PlaceOrderParams {
     pub amount: u64,
     pub order_type: OrderParamsType,
     pub limit_price: u64,
+    pub token_address: ContractAddress,
 }
 
 /// Limit order parameters
@@ -161,11 +164,19 @@ pub struct CancelOrderParams {
     pub order_id: OrderId,
 }
 
+/// Update order parameters
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateOrderParams {
+    pub order_id: OrderId,
+    pub amount: u64,
+    pub token_address: ContractAddress,
+}
+
 impl fmt::Display for CreateMarketParams {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "CreateMarket(name: {}, min_size: {}, tick_size: {}, fees: {}/{} bps, market_orders: {}, limit_orders: {}, side_book_size: {:?}, state: {})",
+            "CreateMarket(name: {}, min_size: {}, tick_size: {}, fees: {}/{} bps, market_orders: {}, limit_orders: {}, side_book_size: {:?}, state: {}, creator: {})",
             self.name,
             self.min_order_size,
             self.tick_size,
@@ -182,7 +193,8 @@ impl fmt::Display for CreateMarketParams {
                 "not allowed"
             },
             self.side_book_size,
-            self.state
+            self.state,
+            self.creator
         )
     }
 }
@@ -309,5 +321,15 @@ impl fmt::Display for MarketOrderParams {
 impl fmt::Display for CancelOrderParams {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "CancelOrder(order_id: {})", self.order_id)
+    }
+}
+
+impl fmt::Display for UpdateOrderParams {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "UpdateOrder(order_id: {}, amount: {})",
+            self.order_id, self.amount
+        )
     }
 }

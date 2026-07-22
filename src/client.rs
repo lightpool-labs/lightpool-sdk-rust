@@ -1,5 +1,5 @@
 use reqwest::Client;
-use crate::lightpool_types::{SignedTransaction, VerifiedTransaction};
+use crate::lightpool_types::SignedTransaction;
 use crate::types::{SubmitTransactionParams, SubmitTransactionResponse, RpcRequest, RpcResponse};
 use crate::error::{SdkError, SdkResult};
 use serde_json::{json, Value};

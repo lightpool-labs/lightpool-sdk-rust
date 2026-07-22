@@ -100,7 +100,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mint_action = ActionBuilder::mint_token(
         token_addr,
-        token_obj_id,
         mint_params,
     )?;
 
@@ -141,7 +140,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let transfer_action = ActionBuilder::transfer_token(
         token_addr,
-        balance_obj_id,
         transfer_params,
     )?;
 

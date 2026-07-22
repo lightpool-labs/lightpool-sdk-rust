@@ -125,6 +125,12 @@ struct ReceiptDisplay<'a> {
 }
 
 pub fn parse_event_data(event_type: &EventType, data: &EventData) -> Option<serde_json::Value> {
+    parse_token_event_data(event_type, data)
+        .or_else(|| crate::staking_events::parse_staking_event_data(event_type, data))
+        .or_else(|| crate::event_contract_events::parse_event_contract_event_data(event_type, data))
+}
+
+pub fn parse_token_event_data(event_type: &EventType, data: &EventData) -> Option<serde_json::Value> {
     match (event_type, data) {
         (EventType::Call(action_name), EventData::Bytes(bytes)) => {
             match action_name.as_str() {

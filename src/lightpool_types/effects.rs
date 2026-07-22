@@ -3,7 +3,7 @@ use std::fmt;
 use crate::lightpool_types::crypto::Digest;
 use crate::lightpool_types::address_type::Address;
 use crate::lightpool_types::contract::ContractAddress;
-use crate::lightpool_types::transaction::VerifiedTransaction;
+use crate::lightpool_types::transaction::SignedTransaction;
 
 #[cfg(feature = "serde")]
 use serde::{Serialize, Deserialize};
@@ -274,8 +274,8 @@ impl TransactionEffect {
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TransactionResult {
-    /// The verified transaction
-    pub transaction: VerifiedTransaction,
+    /// The signed transaction
+    pub transaction: SignedTransaction,
     /// The transaction receipt
     pub receipt: TransactionReceipt,
 }
@@ -283,7 +283,7 @@ pub struct TransactionResult {
 impl TransactionResult {
     /// Create a new TransactionResult
     pub fn new(
-        transaction: VerifiedTransaction,
+        transaction: SignedTransaction,
         receipt: TransactionReceipt,
     ) -> Self {
         Self {
@@ -294,7 +294,7 @@ impl TransactionResult {
 
     /// Get the transaction digest
     pub fn transaction_digest(&self) -> &Digest {
-        self.transaction.digest()
+        &self.receipt.transaction_digest
     }
 
     /// Check if the transaction executed successfully

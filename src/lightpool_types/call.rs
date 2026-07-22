@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::name;
 use compact_str::CompactString;
 use crate::lightpool_types::address_type::Address;
+use crate::lightpool_types::contract::ContractAddress;
 use crate::lightpool_types::object::ObjectID;
 use crate::lightpool_types::spot_actions::MarketState;
 use crate::token_events::format_token_amount;
@@ -19,8 +20,8 @@ pub const MARKET_INFO_ACTION: Name = name!("mkt_info");
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GetMarket {
     pub name: CompactString,
-    pub base_token: Address,
-    pub quote_token: Address,
+    pub base_token: ContractAddress,
+    pub quote_token: ContractAddress,
     pub base_balance: ObjectID,
     pub quote_balance: ObjectID,
     pub min_order_size: u64,

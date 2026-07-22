@@ -32,14 +32,6 @@ impl ObjectID {
 
     pub const MAX: Self = Self([0xff; Self::OBJECT_ID_LENGTH]);
 
-    pub fn payload_from_address_position(address: Address, position: u32) -> [u8; Self::PAYLOAD_LENGTH] {
-        let mut payload = [0u8; Self::PAYLOAD_LENGTH];
-        payload[0..Self::ADDRESS_LENGTH].copy_from_slice(address.as_slice());
-        payload[Self::ADDRESS_LENGTH..Self::PAYLOAD_LENGTH]
-            .copy_from_slice(&position.to_be_bytes());
-        payload
-    }
-
     pub fn generate(contract: ContractAddress, payload: [u8; Self::PAYLOAD_LENGTH]) -> Self {
         let mut bytes = [0u8; Self::OBJECT_ID_LENGTH];
         bytes[Self::CONTRACT_ADDRESS_OFFSET..Self::PAYLOAD_OFFSET]
