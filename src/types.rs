@@ -1,3 +1,6 @@
+// Copyright (c) LightPool Labs
+// Author: xiaoyu1998
+
 use serde::{Deserialize, Serialize};
 use crate::lightpool_types::{TransactionReceipt, SignedTransaction, TransactionEvent, ExecutionStatus};
 use hex;

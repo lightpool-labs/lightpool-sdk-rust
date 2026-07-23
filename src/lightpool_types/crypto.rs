@@ -1,3 +1,6 @@
+// Copyright (c) LightPool Labs
+// Author: xiaoyu1998
+
 pub use lightpool_crypto::{
     derive_public_key_from_secret, generate_keypair, generate_production_keypair, CryptoError,
     Digest, ETHEREUM_ADDRESS_LENGTH, Hash, Keccak256, PublicKey, SecretKey, Signature,

@@ -1,3 +1,6 @@
+// Copyright (c) LightPool Labs
+// Author: xiaoyu1998
+
 use reqwest::Client;
 use crate::lightpool_types::SignedTransaction;
 use crate::types::{SubmitTransactionParams, SubmitTransactionResponse, RpcRequest, RpcResponse};

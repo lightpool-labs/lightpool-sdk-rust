@@ -1,3 +1,6 @@
+// Copyright (c) LightPool Labs
+// Author: xiaoyu1998
+
 use crate::lightpool_types::crypto::Digest;
 use crate::lightpool_types::effects::TransactionResult;
 use serde::{Deserialize, Serialize};

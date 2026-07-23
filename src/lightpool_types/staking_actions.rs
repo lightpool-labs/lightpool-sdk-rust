@@ -1,3 +1,6 @@
+// Copyright (c) LightPool Labs
+// Author: xiaoyu1998
+
 use compact_str::CompactString;
 use crate::lightpool_types::contract::ContractAddress;
 use std::fmt;

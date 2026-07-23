@@ -1,3 +1,6 @@
+// Copyright (c) LightPool Labs
+// Author: xiaoyu1998
+
 use lightpool_sdk::{
     ActionBuilder, CreateMarketParams, CreateTokenParams, ExecutionStatus, EventData, EventType,
     LightPoolClient, MarketState, OrderParamsType, OrderSide, PlaceOrderParams, SegmentSize,

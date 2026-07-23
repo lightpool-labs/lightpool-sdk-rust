@@ -1,3 +1,6 @@
+// Copyright (c) LightPool Labs
+// Author: xiaoyu1998
+
 use crate::lightpool_types::name_type::Name;
 
 #[cfg(feature = "serde")]

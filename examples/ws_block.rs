@@ -1,3 +1,6 @@
+// Copyright (c) LightPool Labs
+// Author: xiaoyu1998
+
 use env_logger::Env;
 use lightpool_sdk::{Message, Subscription, WebSocketClient};
 use log::{error, info, warn};

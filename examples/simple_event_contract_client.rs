@@ -1,3 +1,6 @@
+// Copyright (c) LightPool Labs
+// Author: xiaoyu1998
+
 use env_logger::Env;
 use lightpool_sdk::lightpool_types::call::{GetBalance, GetBalanceParams};
 use lightpool_sdk::{

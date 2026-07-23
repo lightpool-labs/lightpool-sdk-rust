@@ -1,3 +1,6 @@
+// Copyright (c) LightPool Labs
+// Author: xiaoyu1998
+
 use crate::lightpool_types::{generate_production_keypair, PublicKey, SecretKey, Signature, Digest, derive_public_key_from_secret};
 use crate::lightpool_types::Address;
 use crate::error::{SdkError, SdkResult};

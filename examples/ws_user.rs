@@ -1,3 +1,6 @@
+// Copyright (c) LightPool Labs
+// Author: xiaoyu1998
+
 use env_logger::Env;
 use log::{info, error, warn};
 use lightpool_sdk::{InfoClient, Subscription, Message, Address};

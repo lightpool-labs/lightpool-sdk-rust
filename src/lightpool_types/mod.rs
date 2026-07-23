@@ -1,3 +1,6 @@
+// Copyright (c) LightPool Labs
+// Author: xiaoyu1998
+
 pub mod address_type;
 pub mod contract;
 pub mod crypto;

@@ -1,3 +1,6 @@
+// Copyright (c) LightPool Labs
+// Author: xiaoyu1998
+
 use serde::{Serialize, Deserialize};
 use compact_str::CompactString;
 use crate::lightpool_types::address_type::Address;

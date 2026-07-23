@@ -1,3 +1,6 @@
+// Copyright (c) LightPool Labs
+// Author: xiaoyu1998
+
 use std::num::ParseIntError;
 
 /// Monotonic per-market order identifier.

@@ -1,3 +1,6 @@
+// Copyright (c) LightPool Labs
+// Author: xiaoyu1998
+
 use thiserror::Error;
 
 pub type SdkResult<T> = Result<T, SdkError>;

@@ -1,3 +1,6 @@
+// Copyright (c) LightPool Labs
+// Author: xiaoyu1998
+
 use lightpool_sdk::{
     LightPoolClient, TransactionBuilder, ActionBuilder, Signer,
     Address, CreateTokenParams, MintParams, ObjectID,

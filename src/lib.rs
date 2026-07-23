@@ -1,3 +1,6 @@
+// Copyright (c) LightPool Labs
+// Author: xiaoyu1998
+
 /// LightPool SDK for interacting with the LightPool blockchain
 pub mod lightpool_types;
 pub mod transaction;

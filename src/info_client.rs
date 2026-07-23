@@ -1,3 +1,6 @@
+// Copyright (c) LightPool Labs
+// Author: xiaoyu1998
+
 use futures_util::{SinkExt, StreamExt};
 use log::{debug, warn, error, info};
 use serde::{Deserialize, Serialize};

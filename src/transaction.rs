@@ -1,3 +1,6 @@
+// Copyright (c) LightPool Labs
+// Author: xiaoyu1998
+
 use crate::lightpool_types::{Transaction, SignedTransaction, VerifiedTransaction, Action, Signature};
 use crate::lightpool_types::Address;
 use crate::lightpool_types::ContractAddress;
