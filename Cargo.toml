@@ -43,7 +43,7 @@ thiserror = "1.0.21"
 hex = "0.4.3"
 base64 = "0.13.0"
 rand = { version = "0.7.3", optional = true }
-lightpool-crypto = { path = "../lightpool/crates/lightpool-crypto" }
+lightpool-crypto = { git = "https://github.com/xiaoyu1998/lightpool-crypto.git" }
 alloy-primitives = { version = "0.4", features = ["serde"] }
 
 # Utilities
