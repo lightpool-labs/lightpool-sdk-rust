@@ -6,23 +6,29 @@ use crate::lightpool_types::Address;
 use crate::lightpool_types::ContractAddress;
 use crate::lightpool_types::{
     CreateTokenParams, MintParams, TransferParams,
-    CreateMarketParams, UpdateMarketParams, PlaceOrderParams, CancelOrderParams, UpdateOrderParams,
+    CreateMarketParams, UpdateMarketParams, ClaimMarketFeesParams, PlaceOrderParams,
+    CancelOrderParams, UpdateOrderParams,
     CreateEventContractParams, MintEventContractParams, BurnEventContractParams,
     ResolveEventContractParams, RedeemEventContractParams,
     InitStakingConfigParams, BondLplParams, UnbondLplParams, PromoteParams,
+    CreateVaultParams, DepositVaultParams, WithdrawVaultParams, SetVaultManagerParams,
+    SetVaultAllowDepositParams, CloseVaultParams,
     token_module_contract, spot_module_contract, event_contract_module_contract,
-    staking_module_contract,
+    staking_module_contract, vault_module_contract,
 };
 use crate::lightpool_types::call::{
     GetMarketInfoParams, GetOrderBookParams, GetTokenInfoParams, GetBalanceParams,
-    MARKET_INFO_ACTION, ORDER_BOOK_ACTION, TOKEN_INFO_ACTION, GET_BALANCE_ACTION,
+    GetVaultPortfolioParams, MARKET_INFO_ACTION, ORDER_BOOK_ACTION, TOKEN_INFO_ACTION,
+    GET_BALANCE_ACTION, VAULT_PORTFOLIO_ACTION,
 };
 use crate::lightpool_types::{
     Name, CREATE_ACTION, MINT_ACTION, TRANSFER_ACTION,
-    CREATE_MARKET_ACTION, UPDATE_MARKET_ACTION, PLACE_ORDER_ACTION, CANCEL_ORDER_ACTION,
-    UPDATE_ORDER_ACTION,
+    CREATE_MARKET_ACTION, UPDATE_MARKET_ACTION, CLAIM_MARKET_FEES_ACTION, PLACE_ORDER_ACTION,
+    CANCEL_ORDER_ACTION, UPDATE_ORDER_ACTION,
     EC_CREATE_ACTION, EC_MINT_ACTION, EC_BURN_ACTION, EC_RESOLVE_ACTION, EC_REDEEM_ACTION,
     INIT_CONFIG_ACTION, BOND_LPL_ACTION, UNBOND_LPL_ACTION, PROM_PENDING_ACTION, PROM_RUNNING_ACTION,
+    VAULT_CREATE_ACTION, VAULT_DEPOSIT_ACTION, VAULT_WITHDRAW_ACTION, VAULT_SET_MANAGER_ACTION,
+    VAULT_SET_ALLOW_ACTION, VAULT_CLOSE_ACTION,
 };
 use crate::crypto::Signer;
 use crate::error::{SdkError, SdkResult};
@@ -177,6 +183,18 @@ impl ActionBuilder {
         ))
     }
 
+    pub fn claim_market_fees(
+        market_contract: ContractAddress,
+        params: ClaimMarketFeesParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            market_contract,
+            CLAIM_MARKET_FEES_ACTION,
+            serialized_params,
+        ))
+    }
+
     pub fn place_order(
         market_contract: ContractAddress,
         params: PlaceOrderParams,
@@ -266,6 +284,75 @@ impl ActionBuilder {
         Ok(Action::new(
             market_contract,
             EC_REDEEM_ACTION,
+            serialized_params,
+        ))
+    }
+
+    pub fn create_vault(params: CreateVaultParams) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            vault_module_contract(),
+            VAULT_CREATE_ACTION,
+            serialized_params,
+        ))
+    }
+
+    pub fn deposit_vault(
+        vault_contract: ContractAddress,
+        params: DepositVaultParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            vault_contract,
+            VAULT_DEPOSIT_ACTION,
+            serialized_params,
+        ))
+    }
+
+    pub fn withdraw_vault(
+        vault_contract: ContractAddress,
+        params: WithdrawVaultParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            vault_contract,
+            VAULT_WITHDRAW_ACTION,
+            serialized_params,
+        ))
+    }
+
+    pub fn set_vault_manager(
+        vault_contract: ContractAddress,
+        params: SetVaultManagerParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            vault_contract,
+            VAULT_SET_MANAGER_ACTION,
+            serialized_params,
+        ))
+    }
+
+    pub fn set_vault_allow_deposit(
+        vault_contract: ContractAddress,
+        params: SetVaultAllowDepositParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            vault_contract,
+            VAULT_SET_ALLOW_ACTION,
+            serialized_params,
+        ))
+    }
+
+    pub fn close_vault(
+        vault_contract: ContractAddress,
+        params: CloseVaultParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            vault_contract,
+            VAULT_CLOSE_ACTION,
             serialized_params,
         ))
     }
@@ -360,6 +447,18 @@ impl ActionBuilder {
         Ok(Action::new(
             token_contract,
             GET_BALANCE_ACTION,
+            serialized_params,
+        ))
+    }
+
+    pub fn get_vault_portfolio(
+        vault_contract: ContractAddress,
+        params: GetVaultPortfolioParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            vault_contract,
+            VAULT_PORTFOLIO_ACTION,
             serialized_params,
         ))
     }

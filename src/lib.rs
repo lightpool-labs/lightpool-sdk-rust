@@ -8,6 +8,7 @@ pub mod token_events;
 pub mod spot_events;
 pub mod event_contract_events;
 pub mod staking_events;
+pub mod vault_events;
 // pub mod perp_events;
 // pub mod spark_events;
 pub mod client;
@@ -38,7 +39,10 @@ pub use lightpool_types::{
     CreateEventContractParams, MintEventContractParams, BurnEventContractParams,
     ResolveEventContractParams, RedeemEventContractParams,
     InitStakingConfigParams, BondLplParams, UnbondLplParams, PromoteParams,
+    CreateVaultParams, DepositVaultParams, WithdrawVaultParams, SetVaultManagerParams,
+    SetVaultAllowDepositParams, CloseVaultParams,
     event_contract_module_contract, staking_module_contract,
+    vault_module_contract, vault_contract, vault_account, vault_portfolio_id,
     OrderId, OrderIdType,
 };
 
@@ -49,6 +53,7 @@ pub use token_events::*;
 pub use spot_events::*;
 pub use event_contract_events::*;
 pub use staking_events::*;
+pub use vault_events::*;
 pub use types::{
     SubmitTransactionParams, SubmitTransactionResponse,
     RpcRequest, RpcResponse, RpcError,

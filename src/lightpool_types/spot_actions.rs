@@ -84,6 +84,10 @@ pub struct UpdateMarketParams {
     pub state: Option<MarketState>,
 }
 
+/// Claim accrued quote fees from a spot market
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaimMarketFeesParams {}
+
 /// Order side enum
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OrderSide {

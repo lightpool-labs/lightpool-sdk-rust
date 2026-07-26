@@ -34,6 +34,7 @@ pub struct GetMarket {
     pub allow_market_orders: bool,
     pub state: MarketState,
     pub creator: Address,
+    pub accrued_quote_fees: u64,
     pub last_price: Option<u64>,
     pub next_order_id: u64,
     pub base_balance_amount: u64,
@@ -44,7 +45,7 @@ impl fmt::Display for GetMarket {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "GetMarket(name: {}, base: {}, quote: {}, base_balance: {}, quote_balance: {}, min_order: {}, tick: {}, fees: {}/{} bps, market_orders: {}, state: {}, creator: {}, last_price: {:?}, next_order_id: {}, base_amount: {}, quote_amount: {})",
+            "GetMarket(name: {}, base: {}, quote: {}, base_balance: {}, quote_balance: {}, min_order: {}, tick: {}, fees: {}/{} bps, market_orders: {}, state: {}, creator: {}, accrued_quote_fees: {}, last_price: {:?}, next_order_id: {}, base_amount: {}, quote_amount: {})",
             self.name,
             self.base_token,
             self.quote_token,
@@ -57,6 +58,7 @@ impl fmt::Display for GetMarket {
             if self.allow_market_orders { "allowed" } else { "not allowed" },
             self.state,
             self.creator,
+            self.accrued_quote_fees,
             self.last_price,
             self.next_order_id,
             self.base_balance_amount,
@@ -80,6 +82,7 @@ impl GetMarket {
             "allow_market_orders": self.allow_market_orders,
             "state": format!("{}", self.state),
             "creator": self.creator.to_string(),
+            "accrued_quote_fees": format_token_amount(self.accrued_quote_fees),
             "last_price": self.last_price.map(format_token_amount),
             "next_order_id": self.next_order_id,
             "base_balance_amount": format_token_amount(self.base_balance_amount),
@@ -171,4 +174,21 @@ impl GetBalance {
             "available": format_token_amount(self.available),
         })
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GetVaultPortfolioParams {}
+
+pub const VAULT_PORTFOLIO_ACTION: Name = name!("get_pf");
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetVaultPortfolioAsset {
+    pub market: ContractAddress,
+    pub amount: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetVaultPortfolio {
+    pub account: Address,
+    pub assets: Vec<GetVaultPortfolioAsset>,
 }

@@ -92,6 +92,16 @@ pub struct OrderFilledEvent {
     pub remaining_amount: u64,
     pub is_fully_filled: bool,
     pub market: Address,
+    pub fee: u64,
+}
+
+/// Market fees claimed by creator
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MarketFeesClaimedEvent {
+    pub market_id: ObjectID,
+    pub creator: Address,
+    pub quote_token: ContractAddress,
+    pub amount: u64,
 }
 
 /// Order cancelled event structure
@@ -280,7 +290,18 @@ pub fn parse_spot_event_data(event_type: &EventType, data: &EventData) -> Option
                             "fill_amount": format_token_amount(event.fill_amount),
                             "remaining_amount": format_token_amount(event.remaining_amount),
                             "is_fully_filled": event.is_fully_filled,
-                            "market": event.market.to_string()
+                            "market": event.market.to_string(),
+                            "fee": format_token_amount(event.fee)
+                        }))
+                    } else { None }
+                },
+                "market_fees_claimed" => {
+                    if let Ok(event) = bincode::deserialize::<MarketFeesClaimedEvent>(bytes) {
+                        Some(serde_json::json!({
+                            "market_id": event.market_id.to_string(),
+                            "creator": event.creator.to_string(),
+                            "quote_token": event.quote_token.to_string(),
+                            "amount": format_token_amount(event.amount)
                         }))
                     } else { None }
                 },

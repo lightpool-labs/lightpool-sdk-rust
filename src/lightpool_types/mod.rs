@@ -16,6 +16,8 @@ pub mod event_contract_actions;
 pub mod event_contract_helpers;
 pub mod staking_actions;
 pub mod staking_helpers;
+pub mod vault_actions;
+pub mod vault_helpers;
 pub mod order_id;
 pub mod order_id_type;
 pub mod name_type;
@@ -42,7 +44,8 @@ pub use token_helpers::{
     token_object_id, balance_object_id, parse_token_contract,
 };
 pub use spot_actions::{
-    CreateMarketParams, UpdateMarketParams, PlaceOrderParams, CancelOrderParams, UpdateOrderParams,
+    CreateMarketParams, UpdateMarketParams, ClaimMarketFeesParams, PlaceOrderParams,
+    CancelOrderParams, UpdateOrderParams,
     OrderSide, TimeInForce, OrderParamsType, MarketState, SegmentSize,
     LimitOrderParams, TriggerOrderParams, MarketOrderParams, TriggerType,
 };
@@ -62,6 +65,11 @@ pub use staking_actions::{
     InitStakingConfigParams, BondLplParams, UnbondLplParams, PromoteParams,
 };
 pub use staking_helpers::staking_module_contract;
+pub use vault_actions::{
+    CloseVaultParams, CreateVaultParams, DepositVaultParams, SetVaultAllowDepositParams,
+    SetVaultManagerParams, WithdrawVaultParams,
+};
+pub use vault_helpers::{vault_account, vault_contract, vault_module_contract, vault_portfolio_id};
 pub use order_id::{OrderId, parse_order_id};
 pub use order_id_type::OrderIdType;
 pub use name_type::Name;
@@ -72,6 +80,7 @@ pub const MINT_ACTION: Name = name!("mint");
 pub const TRANSFER_ACTION: Name = name!("transfer");
 pub const CREATE_MARKET_ACTION: Name = name!("mkt_create");
 pub const UPDATE_MARKET_ACTION: Name = name!("mkt_update");
+pub const CLAIM_MARKET_FEES_ACTION: Name = name!("mkt_claim");
 pub const PLACE_ORDER_ACTION: Name = name!("ord_place");
 pub const CANCEL_ORDER_ACTION: Name = name!("ord_cancel");
 pub const UPDATE_ORDER_ACTION: Name = name!("ord_update");
@@ -88,3 +97,10 @@ pub const PROM_RUNNING_ACTION: Name = name!("prom_running");
 pub const MARKET_INFO_ACTION: Name = name!("mkt_info");
 pub const TOKEN_INFO_ACTION: Name = name!("token_info");
 pub const GET_BALANCE_ACTION: Name = name!("get_balance");
+pub const VAULT_CREATE_ACTION: Name = name!("create");
+pub const VAULT_DEPOSIT_ACTION: Name = name!("deposit");
+pub const VAULT_WITHDRAW_ACTION: Name = name!("withdraw");
+pub const VAULT_SET_MANAGER_ACTION: Name = name!("set_manager");
+pub const VAULT_SET_ALLOW_ACTION: Name = name!("set_allow");
+pub const VAULT_CLOSE_ACTION: Name = name!("close");
+pub const VAULT_GET_PORTFOLIO_ACTION: Name = name!("get_pf");
