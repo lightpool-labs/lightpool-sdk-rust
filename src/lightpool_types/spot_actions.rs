@@ -136,6 +136,31 @@ pub struct PlaceOrderParams {
     pub token_address: ContractAddress,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AttachedTriggerParams {
+    pub trigger_price: u64,
+    pub limit_price: u64,
+    pub is_market: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ParentOrderType {
+    Limit { tif: TimeInForce },
+    Market { slippage: u64 },
+}
+
+/// Buy parent + pending TP/SL (normalTpsl). Children enter TpslBook only after parent full fill.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlaceOrderGroupParams {
+    pub side: OrderSide,
+    pub amount: u64,
+    pub limit_price: u64,
+    pub token_address: ContractAddress,
+    pub parent_type: ParentOrderType,
+    pub tp: Option<AttachedTriggerParams>,
+    pub sl: Option<AttachedTriggerParams>,
+}
+
 /// Limit order parameters
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LimitOrderParams {
@@ -177,6 +202,12 @@ pub struct UpdateOrderParams {
     pub order_id: OrderId,
     pub amount: u64,
     pub token_address: ContractAddress,
+}
+
+/// Validator oracle price submission
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubmitOraclePriceParams {
+    pub price: u64,
 }
 
 impl fmt::Display for CreateMarketParams {

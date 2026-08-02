@@ -10,6 +10,7 @@ pub const INCREMENT_SLOT: u32 = 0;
 pub const MARKET_SLOT: u32 = 1;
 pub const BIDS_SLOT: u32 = 2;
 pub const ASKS_SLOT: u32 = 3;
+pub const ORACLE_QUOTES_SLOT: u32 = 4;
 
 const NAMESPACE_ROOT: u8 = 0x00;
 
@@ -68,6 +69,14 @@ pub fn spot_asks_id(market_address: ContractAddress) -> ObjectID {
     spot_object_id(
         market_address,
         payload_from_root_slot(ASKS_SLOT as u8),
+    )
+}
+
+/// Oracle quotes object id.
+pub fn spot_oracle_quotes_id(market_address: ContractAddress) -> ObjectID {
+    spot_object_id(
+        market_address,
+        payload_from_root_slot(ORACLE_QUOTES_SLOT as u8),
     )
 }
 

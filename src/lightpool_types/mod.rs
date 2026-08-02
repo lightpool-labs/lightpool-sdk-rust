@@ -45,15 +45,16 @@ pub use token_helpers::{
 };
 pub use spot_actions::{
     CreateMarketParams, UpdateMarketParams, ClaimMarketFeesParams, PlaceOrderParams,
-    CancelOrderParams, UpdateOrderParams,
+    PlaceOrderGroupParams, AttachedTriggerParams, ParentOrderType,
+    CancelOrderParams, UpdateOrderParams, SubmitOraclePriceParams,
     OrderSide, TimeInForce, OrderParamsType, MarketState, SegmentSize,
     LimitOrderParams, TriggerOrderParams, MarketOrderParams, TriggerType,
 };
 pub use spot_helpers::{
     spot_module_contract, market_contract, spot_market_id, spot_bids_id, spot_asks_id,
-    parse_market_contract, token_address_from_contract,
+    spot_oracle_quotes_id, parse_market_contract, token_address_from_contract,
     INCREMENT_SLOT as SPOT_INCREMENT_SLOT,
-    MARKET_SLOT, BIDS_SLOT, ASKS_SLOT,
+    MARKET_SLOT, BIDS_SLOT, ASKS_SLOT, ORACLE_QUOTES_SLOT,
 };
 pub use event_contract_actions::{
     CreateEventContractParams, MintEventContractParams, BurnEventContractParams,
@@ -82,8 +83,10 @@ pub const CREATE_MARKET_ACTION: Name = name!("mkt_create");
 pub const UPDATE_MARKET_ACTION: Name = name!("mkt_update");
 pub const CLAIM_MARKET_FEES_ACTION: Name = name!("mkt_claim");
 pub const PLACE_ORDER_ACTION: Name = name!("ord_place");
+pub const PLACE_ORDER_GROUP_ACTION: Name = name!("ord_group");
 pub const CANCEL_ORDER_ACTION: Name = name!("ord_cancel");
 pub const UPDATE_ORDER_ACTION: Name = name!("ord_update");
+pub const SUBMIT_ORACLE_PRICE_ACTION: Name = name!("ora_submit");
 pub const EC_CREATE_ACTION: Name = name!("ec_create");
 pub const EC_MINT_ACTION: Name = name!("ec_mint");
 pub const EC_BURN_ACTION: Name = name!("ec_burn");

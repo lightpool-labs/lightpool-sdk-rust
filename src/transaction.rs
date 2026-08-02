@@ -7,7 +7,7 @@ use crate::lightpool_types::ContractAddress;
 use crate::lightpool_types::{
     CreateTokenParams, MintParams, TransferParams,
     CreateMarketParams, UpdateMarketParams, ClaimMarketFeesParams, PlaceOrderParams,
-    CancelOrderParams, UpdateOrderParams,
+    PlaceOrderGroupParams, CancelOrderParams, UpdateOrderParams, SubmitOraclePriceParams,
     CreateEventContractParams, MintEventContractParams, BurnEventContractParams,
     ResolveEventContractParams, RedeemEventContractParams,
     InitStakingConfigParams, BondLplParams, UnbondLplParams, PromoteParams,
@@ -24,7 +24,7 @@ use crate::lightpool_types::call::{
 use crate::lightpool_types::{
     Name, CREATE_ACTION, MINT_ACTION, TRANSFER_ACTION,
     CREATE_MARKET_ACTION, UPDATE_MARKET_ACTION, CLAIM_MARKET_FEES_ACTION, PLACE_ORDER_ACTION,
-    CANCEL_ORDER_ACTION, UPDATE_ORDER_ACTION,
+    PLACE_ORDER_GROUP_ACTION, CANCEL_ORDER_ACTION, UPDATE_ORDER_ACTION, SUBMIT_ORACLE_PRICE_ACTION,
     EC_CREATE_ACTION, EC_MINT_ACTION, EC_BURN_ACTION, EC_RESOLVE_ACTION, EC_REDEEM_ACTION,
     INIT_CONFIG_ACTION, BOND_LPL_ACTION, UNBOND_LPL_ACTION, PROM_PENDING_ACTION, PROM_RUNNING_ACTION,
     VAULT_CREATE_ACTION, VAULT_DEPOSIT_ACTION, VAULT_WITHDRAW_ACTION, VAULT_SET_MANAGER_ACTION,
@@ -207,6 +207,18 @@ impl ActionBuilder {
         ))
     }
 
+    pub fn place_order_group(
+        market_contract: ContractAddress,
+        params: PlaceOrderGroupParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            market_contract,
+            PLACE_ORDER_GROUP_ACTION,
+            serialized_params,
+        ))
+    }
+
     pub fn cancel_order(
         market_contract: ContractAddress,
         params: CancelOrderParams,
@@ -227,6 +239,18 @@ impl ActionBuilder {
         Ok(Action::new(
             market_contract,
             UPDATE_ORDER_ACTION,
+            serialized_params,
+        ))
+    }
+
+    pub fn submit_oracle_price(
+        market_contract: ContractAddress,
+        params: SubmitOraclePriceParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            market_contract,
+            SUBMIT_ORACLE_PRICE_ACTION,
             serialized_params,
         ))
     }
