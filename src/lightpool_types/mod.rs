@@ -7,6 +7,7 @@ pub mod crypto;
 pub mod module;
 pub mod object;
 pub mod transaction;
+pub mod eip712;
 pub mod effects;
 pub mod token_actions;
 pub mod token_helpers;
@@ -29,7 +30,11 @@ pub use contract::ContractAddress;
 pub use module::Module;
 pub use crypto::{Digest, PublicKey, SecretKey, Signature, generate_production_keypair, derive_public_key_from_secret};
 pub use object::ObjectID;
-pub use transaction::{Action, Transaction, SignedTransaction, VerifiedTransaction};
+pub use transaction::{Action, AuthScheme, Transaction, SignedTransaction, VerifiedTransaction};
+pub use eip712::{
+    eip712_hash_for_tx_digest, LIGHTPOOL_EIP712_CHAIN_ID, LIGHTPOOL_EIP712_NAME,
+    LIGHTPOOL_EIP712_VERIFYING_CONTRACT, LIGHTPOOL_EIP712_VERSION,
+};
 pub use effects::{
     TransactionReceipt, TransactionEvent, EventType, EventData, ExecutionStatus,
     TransactionEffect, TransactionResult

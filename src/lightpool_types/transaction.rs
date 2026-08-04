@@ -17,6 +17,18 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "serialization")]
 use bincode;
 
+/// How `SignedTransaction.signature` was produced over `Transaction::digest()`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[repr(u8)]
+pub enum AuthScheme {
+    /// Legacy LightPool: ECDSA over SHA256(tx_digest) via `Signature::new` / `verify`.
+    #[default]
+    LightPoolNative = 0,
+    /// MetaMask EIP-712 (`LightPoolTx { digest }`) with `recover_from_prehash`.
+    Eip712 = 1,
+}
+
 #[derive(Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Action {
@@ -157,6 +169,8 @@ impl Transaction {
 pub struct SignedTransaction {
     pub transaction: Transaction,
     pub signature: Signature,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub scheme: AuthScheme,
 }
 
 impl SignedTransaction {
@@ -164,9 +178,18 @@ impl SignedTransaction {
         transaction: Transaction,
         signature: Signature,
     ) -> Self {
+        Self::new_with_scheme(transaction, signature, AuthScheme::LightPoolNative)
+    }
+
+    pub fn new_with_scheme(
+        transaction: Transaction,
+        signature: Signature,
+        scheme: AuthScheme,
+    ) -> Self {
         Self {
             transaction,
             signature,
+            scheme,
         }
     }
 
@@ -178,27 +201,40 @@ impl SignedTransaction {
         &self.signature
     }
 
+    pub fn scheme(&self) -> AuthScheme {
+        self.scheme
+    }
+
     pub fn inputs(&self) -> Vec<ObjectID> {
         Vec::new()
     }
 
     pub fn digest(&self) -> Digest {
-        Self::calculate_digest(&self.transaction, &self.signature)
+        Self::calculate_digest(&self.transaction, &self.signature, self.scheme)
     }
 
     #[cfg(feature = "serialization")]
-    fn calculate_digest(transaction: &Transaction, signature: &Signature) -> Digest {
+    fn calculate_digest(
+        transaction: &Transaction,
+        signature: &Signature,
+        scheme: AuthScheme,
+    ) -> Digest {
         let tx_bytes = bincode::serialize(transaction).expect("Failed to serialize transaction");
 
         let mut all_data = tx_bytes;
         let sig_bytes = bincode::serialize(signature).expect("Failed to serialize signature");
         all_data.extend_from_slice(&sig_bytes);
+        all_data.push(scheme as u8);
 
         Digest::new_from_bytes(&all_data)
     }
 
     #[cfg(not(feature = "serialization"))]
-    fn calculate_digest(transaction: &Transaction, _signature: &Signature) -> Digest {
+    fn calculate_digest(
+        transaction: &Transaction,
+        _signature: &Signature,
+        _scheme: AuthScheme,
+    ) -> Digest {
         transaction.digest()
     }
 }
