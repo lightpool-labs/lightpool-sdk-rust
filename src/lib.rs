@@ -9,6 +9,7 @@ pub mod spot_events;
 pub mod event_contract_events;
 pub mod staking_events;
 pub mod vault_events;
+pub mod margin_events;
 // pub mod perp_events;
 // pub mod spark_events;
 pub mod client;
@@ -41,10 +42,20 @@ pub use lightpool_types::{
     CreateEventContractParams, MintEventContractParams, BurnEventContractParams,
     ResolveEventContractParams, RedeemEventContractParams,
     InitStakingConfigParams, BondLplParams, UnbondLplParams, PromoteParams,
+    AllocateStakeParams, DeallocateStakeParams, WithdrawUnbondParams, RegisterValidatorParams,
+    StakePurpose,
     CreateVaultParams, DepositVaultParams, WithdrawVaultParams, SetVaultManagerParams,
     SetVaultAllowDepositParams, CloseVaultParams,
+    CreatePoolParams, SupplyParams, WithdrawSupplyParams, CreateMarginParams,
+    DepositCollateralParams, WithdrawCollateralParams, BorrowParams, RepayParams, LiquidateParams,
+    MARGIN_MODE_CROSS, MARGIN_MODE_ISOLATED,
+    InitBridgeConfigParams, ConfirmDepositParams, BridgeWithdrawParams, BridgeAuthority,
+    BridgeDepositMessage, BridgeVote, SetAgentParams,
     event_contract_module_contract, staking_module_contract,
     vault_module_contract, vault_contract, vault_account, vault_portfolio_id,
+    margin_module_contract, pool_contract, margin_account_contract, pool_account,
+    margin_trading_account, TAG_POOL, TAG_ACCOUNT,
+    bridge_module_contract, account_module_contract,
     OrderId, OrderIdType,
 };
 
@@ -56,6 +67,7 @@ pub use spot_events::*;
 pub use event_contract_events::*;
 pub use staking_events::*;
 pub use vault_events::*;
+pub use margin_events::*;
 pub use types::{
     SubmitTransactionParams, SubmitTransactionResponse,
     RpcRequest, RpcResponse, RpcError,

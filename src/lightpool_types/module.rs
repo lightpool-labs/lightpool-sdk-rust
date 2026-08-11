@@ -15,6 +15,8 @@ impl Module {
     pub const SPOT: Module = Module(0x03);
     pub const EVENT_CONTRACT: Module = Module(0x04);
     pub const VAULT: Module = Module(0x05);
+    pub const BRIDGE: Module = Module(0x06);
+    pub const MARGIN: Module = Module(0x07);
 
     pub const fn new(value: u8) -> Self {
         Self(value)

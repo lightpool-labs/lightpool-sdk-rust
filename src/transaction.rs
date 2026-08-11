@@ -11,10 +11,15 @@ use crate::lightpool_types::{
     CreateEventContractParams, MintEventContractParams, BurnEventContractParams,
     ResolveEventContractParams, RedeemEventContractParams,
     InitStakingConfigParams, BondLplParams, UnbondLplParams, PromoteParams,
+    AllocateStakeParams, DeallocateStakeParams, WithdrawUnbondParams, RegisterValidatorParams,
     CreateVaultParams, DepositVaultParams, WithdrawVaultParams, SetVaultManagerParams,
     SetVaultAllowDepositParams, CloseVaultParams,
+    CreatePoolParams, SupplyParams, WithdrawSupplyParams, CreateMarginParams,
+    DepositCollateralParams, WithdrawCollateralParams, BorrowParams, RepayParams, LiquidateParams,
+    InitBridgeConfigParams, ConfirmDepositParams, BridgeWithdrawParams, SetAgentParams,
     token_module_contract, spot_module_contract, event_contract_module_contract,
-    staking_module_contract, vault_module_contract,
+    staking_module_contract, vault_module_contract, margin_module_contract,
+    bridge_module_contract, account_module_contract,
 };
 use crate::lightpool_types::call::{
     GetMarketInfoParams, GetOrderBookParams, GetTokenInfoParams, GetBalanceParams,
@@ -27,8 +32,13 @@ use crate::lightpool_types::{
     PLACE_ORDER_GROUP_ACTION, CANCEL_ORDER_ACTION, UPDATE_ORDER_ACTION, SUBMIT_ORACLE_PRICE_ACTION,
     EC_CREATE_ACTION, EC_MINT_ACTION, EC_BURN_ACTION, EC_RESOLVE_ACTION, EC_REDEEM_ACTION,
     INIT_CONFIG_ACTION, BOND_LPL_ACTION, UNBOND_LPL_ACTION, PROM_PENDING_ACTION, PROM_RUNNING_ACTION,
+    ALLOCATE_STAKE_ACTION, DEALLOCATE_STAKE_ACTION, WITHDRAW_UNBOND_ACTION, REGISTER_VALIDATOR_ACTION,
     VAULT_CREATE_ACTION, VAULT_DEPOSIT_ACTION, VAULT_WITHDRAW_ACTION, VAULT_SET_MANAGER_ACTION,
     VAULT_SET_ALLOW_ACTION, VAULT_CLOSE_ACTION,
+    MARGIN_CREATE_POOL_ACTION, MARGIN_SUPPLY_ACTION, MARGIN_WITHDRAW_SUPPLY_ACTION,
+    MARGIN_CREATE_ACCOUNT_ACTION, MARGIN_DEPOSIT_ACTION, MARGIN_WITHDRAW_ACTION,
+    MARGIN_BORROW_ACTION, MARGIN_REPAY_ACTION, MARGIN_LIQUIDATE_ACTION,
+    BRIDGE_CONFIRM_DEP_ACTION, BRIDGE_WITHDRAW_ACTION, SET_AGENT_ACTION,
 };
 use crate::crypto::Signer;
 use crate::error::{SdkError, SdkResult};
@@ -381,6 +391,144 @@ impl ActionBuilder {
         ))
     }
 
+    pub fn create_margin_pool(params: CreatePoolParams) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            margin_module_contract(),
+            MARGIN_CREATE_POOL_ACTION,
+            serialized_params,
+        ))
+    }
+
+    pub fn supply_margin_pool(
+        pool_contract: ContractAddress,
+        params: SupplyParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            pool_contract,
+            MARGIN_SUPPLY_ACTION,
+            serialized_params,
+        ))
+    }
+
+    pub fn withdraw_margin_supply(
+        pool_contract: ContractAddress,
+        params: WithdrawSupplyParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            pool_contract,
+            MARGIN_WITHDRAW_SUPPLY_ACTION,
+            serialized_params,
+        ))
+    }
+
+    pub fn create_margin_account(params: CreateMarginParams) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            margin_module_contract(),
+            MARGIN_CREATE_ACCOUNT_ACTION,
+            serialized_params,
+        ))
+    }
+
+    pub fn deposit_margin_collateral(
+        margin_contract: ContractAddress,
+        params: DepositCollateralParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            margin_contract,
+            MARGIN_DEPOSIT_ACTION,
+            serialized_params,
+        ))
+    }
+
+    pub fn withdraw_margin_collateral(
+        margin_contract: ContractAddress,
+        params: WithdrawCollateralParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            margin_contract,
+            MARGIN_WITHDRAW_ACTION,
+            serialized_params,
+        ))
+    }
+
+    pub fn borrow_margin(
+        margin_contract: ContractAddress,
+        params: BorrowParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            margin_contract,
+            MARGIN_BORROW_ACTION,
+            serialized_params,
+        ))
+    }
+
+    pub fn repay_margin(
+        margin_contract: ContractAddress,
+        params: RepayParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            margin_contract,
+            MARGIN_REPAY_ACTION,
+            serialized_params,
+        ))
+    }
+
+    pub fn liquidate_margin(
+        margin_contract: ContractAddress,
+        params: LiquidateParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            margin_contract,
+            MARGIN_LIQUIDATE_ACTION,
+            serialized_params,
+        ))
+    }
+
+    pub fn init_bridge_config(params: InitBridgeConfigParams) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            bridge_module_contract(),
+            INIT_CONFIG_ACTION,
+            serialized_params,
+        ))
+    }
+
+    pub fn confirm_bridge_deposit(params: ConfirmDepositParams) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            bridge_module_contract(),
+            BRIDGE_CONFIRM_DEP_ACTION,
+            serialized_params,
+        ))
+    }
+
+    pub fn bridge_withdraw(params: BridgeWithdrawParams) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            bridge_module_contract(),
+            BRIDGE_WITHDRAW_ACTION,
+            serialized_params,
+        ))
+    }
+
+    pub fn set_agent(params: SetAgentParams) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            account_module_contract(),
+            SET_AGENT_ACTION,
+            serialized_params,
+        ))
+    }
+
     pub fn init_staking_config(params: InitStakingConfigParams) -> SdkResult<Action> {
         let serialized_params = bincode::serialize(&params)?;
         Ok(Action::new(
@@ -422,6 +570,42 @@ impl ActionBuilder {
         Ok(Action::new(
             staking_module_contract(),
             UNBOND_LPL_ACTION,
+            serialized_params,
+        ))
+    }
+
+    pub fn allocate_stake(params: AllocateStakeParams) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            staking_module_contract(),
+            ALLOCATE_STAKE_ACTION,
+            serialized_params,
+        ))
+    }
+
+    pub fn deallocate_stake(params: DeallocateStakeParams) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            staking_module_contract(),
+            DEALLOCATE_STAKE_ACTION,
+            serialized_params,
+        ))
+    }
+
+    pub fn withdraw_unbond(params: WithdrawUnbondParams) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            staking_module_contract(),
+            WITHDRAW_UNBOND_ACTION,
+            serialized_params,
+        ))
+    }
+
+    pub fn register_validator(params: RegisterValidatorParams) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            staking_module_contract(),
+            REGISTER_VALIDATOR_ACTION,
             serialized_params,
         ))
     }

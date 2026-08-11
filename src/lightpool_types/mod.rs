@@ -19,6 +19,12 @@ pub mod staking_actions;
 pub mod staking_helpers;
 pub mod vault_actions;
 pub mod vault_helpers;
+pub mod margin_actions;
+pub mod margin_helpers;
+pub mod bridge_actions;
+pub mod bridge_helpers;
+pub mod account_actions;
+pub mod account_helpers;
 pub mod order_id;
 pub mod order_id_type;
 pub mod name_type;
@@ -68,7 +74,8 @@ pub use event_contract_actions::{
 };
 pub use event_contract_helpers::event_contract_module_contract;
 pub use staking_actions::{
-    InitStakingConfigParams, BondLplParams, UnbondLplParams, PromoteParams,
+    AllocateStakeParams, BondLplParams, DeallocateStakeParams, InitStakingConfigParams,
+    PromoteParams, RegisterValidatorParams, StakePurpose, UnbondLplParams, WithdrawUnbondParams,
 };
 pub use staking_helpers::staking_module_contract;
 pub use vault_actions::{
@@ -76,6 +83,22 @@ pub use vault_actions::{
     SetVaultManagerParams, WithdrawVaultParams,
 };
 pub use vault_helpers::{vault_account, vault_contract, vault_module_contract, vault_portfolio_id};
+pub use margin_actions::{
+    BorrowParams, CreateMarginParams, CreatePoolParams, DepositCollateralParams, LiquidateParams,
+    RepayParams, SupplyParams, WithdrawCollateralParams, WithdrawSupplyParams,
+    MARGIN_MODE_CROSS, MARGIN_MODE_ISOLATED,
+};
+pub use margin_helpers::{
+    is_margin_account_contract, is_pool_contract, margin_account_contract, margin_module_contract,
+    margin_trading_account, pool_account, pool_contract, TAG_ACCOUNT, TAG_POOL,
+};
+pub use bridge_actions::{
+    BridgeAuthority, BridgeDepositMessage, BridgeVote, BridgeWithdrawParams, ConfirmDepositParams,
+    InitBridgeConfigParams,
+};
+pub use bridge_helpers::bridge_module_contract;
+pub use account_actions::SetAgentParams;
+pub use account_helpers::account_module_contract;
 pub use order_id::{OrderId, parse_order_id};
 pub use order_id_type::OrderIdType;
 pub use name_type::Name;
@@ -102,6 +125,10 @@ pub const BOND_LPL_ACTION: Name = name!("bond_lpl");
 pub const UNBOND_LPL_ACTION: Name = name!("unbond_lpl");
 pub const PROM_PENDING_ACTION: Name = name!("prom_pending");
 pub const PROM_RUNNING_ACTION: Name = name!("prom_running");
+pub const ALLOCATE_STAKE_ACTION: Name = name!("allocate");
+pub const DEALLOCATE_STAKE_ACTION: Name = name!("deallocate");
+pub const WITHDRAW_UNBOND_ACTION: Name = name!("wd_unbond");
+pub const REGISTER_VALIDATOR_ACTION: Name = name!("reg_val");
 pub const MARKET_INFO_ACTION: Name = name!("mkt_info");
 pub const TOKEN_INFO_ACTION: Name = name!("token_info");
 pub const GET_BALANCE_ACTION: Name = name!("get_balance");
@@ -112,3 +139,16 @@ pub const VAULT_SET_MANAGER_ACTION: Name = name!("set_manager");
 pub const VAULT_SET_ALLOW_ACTION: Name = name!("set_allow");
 pub const VAULT_CLOSE_ACTION: Name = name!("close");
 pub const VAULT_GET_PORTFOLIO_ACTION: Name = name!("get_pf");
+pub const MARGIN_CREATE_POOL_ACTION: Name = name!("crt_pool");
+pub const MARGIN_SUPPLY_ACTION: Name = name!("supply");
+pub const MARGIN_WITHDRAW_SUPPLY_ACTION: Name = name!("wd_sup");
+pub const MARGIN_CREATE_ACCOUNT_ACTION: Name = name!("crt_mgn");
+pub const MARGIN_DEPOSIT_ACTION: Name = name!("deposit");
+pub const MARGIN_WITHDRAW_ACTION: Name = name!("wd_col");
+pub const MARGIN_BORROW_ACTION: Name = name!("borrow");
+pub const MARGIN_REPAY_ACTION: Name = name!("repay");
+pub const MARGIN_LIQUIDATE_ACTION: Name = name!("liqd");
+pub const BRIDGE_CONFIRM_DEP_ACTION: Name = name!("confirm_dep");
+pub const BRIDGE_WITHDRAW_ACTION: Name = name!("withdraw");
+pub const BRIDGE_REFUND_WD_ACTION: Name = name!("refund_wd");
+pub const SET_AGENT_ACTION: Name = name!("set_agent");
