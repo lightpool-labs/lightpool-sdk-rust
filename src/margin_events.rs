@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::lightpool_types::address_type::Address;
 use crate::lightpool_types::contract::ContractAddress;
 use crate::token_events::{format_token_amount, HumanReadableEvent, parse_token_event_data};
-use crate::{EventData, EventType, TransactionReceipt};
+use crate::{EventData, EventType, TransactionEvent, TransactionReceipt};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PoolCreatedEvent {
@@ -137,6 +137,30 @@ pub fn extract_borrowed_from_events(receipt: &TransactionReceipt) -> Option<Borr
 pub fn extract_liquidated_from_events(receipt: &TransactionReceipt) -> Option<LiquidatedEvent> {
     find_call_event(receipt, "margin_liquidated")
         .and_then(|data| bincode::deserialize(data).ok())
+}
+
+pub fn extract_all_liquidated_from_events(
+    receipt: &TransactionReceipt,
+) -> Vec<LiquidatedEvent> {
+    extract_all_liquidated_from_event_list(&receipt.events)
+}
+
+pub fn extract_all_liquidated_from_event_list(
+    events: &[TransactionEvent],
+) -> Vec<LiquidatedEvent> {
+    let mut out = Vec::new();
+    for event in events {
+        if let EventType::Call(action_name) = &event.event_type {
+            if action_name == "margin_liquidated" {
+                if let EventData::Bytes(data) = &event.data {
+                    if let Ok(ev) = bincode::deserialize(data) {
+                        out.push(ev);
+                    }
+                }
+            }
+        }
+    }
+    out
 }
 
 pub fn parse_margin_event_data(event_type: &EventType, data: &EventData) -> Option<serde_json::Value> {

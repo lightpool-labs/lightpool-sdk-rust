@@ -29,6 +29,7 @@ pub mod order_id;
 pub mod order_id_type;
 pub mod name_type;
 pub mod block;
+pub mod clearinghouse_event;
 pub mod call;
 
 pub use address_type::Address;
@@ -46,6 +47,7 @@ pub use effects::{
     TransactionEffect, TransactionResult
 };
 pub use block::ReceiptBlock;
+pub use clearinghouse_event::ClearingHouseEvent;
 pub use token_actions::{
     CreateTokenParams, MintParams, TransferParams,
 };

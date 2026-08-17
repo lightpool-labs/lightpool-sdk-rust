@@ -1,6 +1,7 @@
 // Copyright (c) LightPool Labs
 // Author: xiaoyu1998
 
+use crate::lightpool_types::clearinghouse_event::ClearingHouseEvent;
 use crate::lightpool_types::crypto::Digest;
 use crate::lightpool_types::effects::TransactionResult;
 use serde::{Deserialize, Serialize};
@@ -14,6 +15,9 @@ pub struct ReceiptBlock {
     pub digest: Digest,
     /// Vector of transaction results from block execution
     pub transaction_outputs: Vec<TransactionResult>,
+    /// Block-end clearinghouse outcomes (not per-tx events).
+    #[serde(default)]
+    pub clearinghouse_events: Vec<ClearingHouseEvent>,
 }
 
 impl ReceiptBlock {
@@ -27,6 +31,7 @@ impl ReceiptBlock {
             block_num,
             digest,
             transaction_outputs,
+            clearinghouse_events: Vec::new(),
         }
     }
 
@@ -70,4 +75,4 @@ impl ReceiptBlock {
             .filter(|output| !output.is_success())
             .collect()
     }
-} 
+}

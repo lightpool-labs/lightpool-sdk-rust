@@ -9,11 +9,17 @@ use std::sync::Arc;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, Mutex, oneshot};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
-use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
+use tokio_tungstenite::{
+    connect_async_with_config, tungstenite::Message as WsMessage, MaybeTlsStream, WebSocketStream,
+};
 use url::Url;
 
 use crate::error::{SdkError, SdkResult};
 use crate::ws::message::{Message, Subscription};
+
+/// Allow large NewBlock payloads (full ReceiptBlock under load).
+const WS_MAX_MESSAGE_SIZE: usize = 256 << 20; // 256 MiB
 
 /// Client for interacting with the LightPool WebSocket API.
 pub struct WebSocketClient {
@@ -37,6 +43,15 @@ impl WebSocketClient {
         self.request_id.fetch_add(1, Ordering::SeqCst)
     }
 
+    fn ws_config() -> WebSocketConfig {
+        #[allow(deprecated)]
+        WebSocketConfig {
+            max_message_size: Some(WS_MAX_MESSAGE_SIZE),
+            max_frame_size: Some(WS_MAX_MESSAGE_SIZE),
+            ..WebSocketConfig::default()
+        }
+    }
+
     async fn connect(&self) -> SdkResult<WebSocketStream<MaybeTlsStream<TcpStream>>> {
         let url = Url::parse(&self.endpoint)
             .map_err(|e| SdkError::Network(format!("Invalid WebSocket URL: {}", e)))?;
@@ -49,7 +64,7 @@ impl WebSocketClient {
             .headers_mut()
             .insert("Sec-WebSocket-Protocol", "jsonrpc".parse().unwrap());
 
-        let (ws_stream, _) = connect_async(request)
+        let (ws_stream, _) = connect_async_with_config(request, Some(Self::ws_config()), false)
             .await
             .map_err(|e| SdkError::Network(format!("WebSocket connection failed: {}", e)))?;
 
@@ -160,13 +175,18 @@ impl WebSocketClient {
                         if let Some(params) = value.get("params") {
                             if let Some(result) = params.get("result") {
                                 if let Some(data) = result.get("data") {
-                                    if let Ok(msg) = serde_json::from_value::<Message>(data.clone())
+                                        if let Ok(msg) = serde_json::from_value::<Message>(data.clone())
                                     {
                                         if sender.send(msg).is_err() {
-                                            error!("Failed to send WS notification");
+                                            // Receiver dropped (subscriber stopped); end quietly.
                                             break;
                                         }
                                         continue;
+                                    } else {
+                                        warn!(
+                                            "Failed to parse WS Message data: {}",
+                                            data
+                                        );
                                     }
                                 }
                             }

@@ -61,6 +61,7 @@ pub use lightpool_types::{
 
 pub use lightpool_types::TransactionReceipt;
 pub use lightpool_types::ReceiptBlock;
+pub use lightpool_types::ClearingHouseEvent;
 
 pub use token_events::*;
 pub use spot_events::*;

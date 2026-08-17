@@ -9,14 +9,19 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, Mutex, oneshot};
-use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{
+    connect_async_with_config, tungstenite::Message as WsMessage, MaybeTlsStream, WebSocketStream,
+};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::Error as WsError;
 use url::Url;
 
 use crate::error::{SdkError, SdkResult};
 use crate::ws::message::{Message, Subscription};
 
+/// Allow large NewBlock payloads (full ReceiptBlock under load).
+const WS_MAX_MESSAGE_SIZE: usize = 256 << 20; // 256 MiB
 
 /// Client for interacting with LightPool WebSocket API
 pub struct InfoClient {
@@ -43,6 +48,15 @@ impl InfoClient {
     fn next_request_id(&self) -> u64 {
         self.request_id.fetch_add(1, Ordering::SeqCst)
     }
+
+    fn ws_config() -> WebSocketConfig {
+        #[allow(deprecated)]
+        WebSocketConfig {
+            max_message_size: Some(WS_MAX_MESSAGE_SIZE),
+            max_frame_size: Some(WS_MAX_MESSAGE_SIZE),
+            ..WebSocketConfig::default()
+        }
+    }
     
     /// Connect to the WebSocket endpoint
     async fn connect(&self) -> SdkResult<WebSocketStream<MaybeTlsStream<TcpStream>>> {
@@ -57,7 +71,7 @@ impl InfoClient {
             "jsonrpc".parse().unwrap(),
         );
         
-        let (ws_stream, _) = connect_async(request)
+        let (ws_stream, _) = connect_async_with_config(request, Some(Self::ws_config()), false)
             .await
             .map_err(|e| SdkError::Network(format!("WebSocket connection failed: {}", e)))?;
         
