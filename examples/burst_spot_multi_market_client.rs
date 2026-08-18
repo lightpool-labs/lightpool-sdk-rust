@@ -5,7 +5,7 @@ use lightpool_sdk::{
     LightPoolClient, TransactionBuilder, ActionBuilder, Signer,
     Address, ContractAddress, CreateTokenParams, CreateMarketParams, PlaceOrderParams,
     TransferParams, ExecutionStatus, EventType, EventData,
-    OrderSide, TimeInForce, OrderParamsType, MarketState, SegmentSize,
+    OrderSide, TimeInForce, OrderParamsType, MarketState, SegmentSize, TOKEN_SCALE,
 };
 use lightpool_sdk::spot_events::MarketCreatedEvent;
 use lightpool_sdk::token_events::TokenCreatedEvent;
@@ -25,6 +25,9 @@ use log::{info, warn, error};
 const TICK_SIZE: u64 = 100_000;
 const MIN_ORDER_SIZE: u64 = 100_000;
 const SETUP_ACTIONS_BATCH: usize = 64;
+const BURST_SLIPPAGE: u64 = 100;
+/// One market sell per this many burst txs (~1% fills, 99% resting limit sells).
+const MARKET_ORDER_EVERY: u64 = 100;
 
 #[derive(Parser)]
 #[clap(
@@ -68,7 +71,7 @@ struct SpotMarketInfo {
     market_address: ContractAddress,
     base_token: ContractAddress,
     quote_token: ContractAddress,
-    ask_price: u64,
+    match_price: u64,
 }
 
 struct BurstSpotSender {
@@ -88,9 +91,70 @@ fn senders_for_market(senders: usize, num_markets: usize, market_index: usize) -
     senders / num_markets + if market_index < senders % num_markets { 1 } else { 0 }
 }
 
-fn market_ask_price(market_index: usize) -> u64 {
+fn market_match_price(market_index: usize) -> u64 {
     let base = 10_000_000u64 + market_index as u64 * 1_000_000;
     base.saturating_add(100 * TICK_SIZE)
+}
+
+fn quote_for_base(amount: u64, price: u64) -> u64 {
+    ((amount as u128).saturating_mul(price as u128) / TOKEN_SCALE as u128) as u64
+}
+
+fn bid_liquidity_base(cli: &Cli, market_index: usize) -> u64 {
+    let market_senders = senders_for_market(cli.senders, cli.num_markets, market_index);
+    let market_txs = cli
+        .rate_per_task
+        .saturating_mul(cli.duration)
+        .saturating_mul(market_senders as u64);
+    let market_fill_txs = market_txs / MARKET_ORDER_EVERY + 1;
+    cli.order_amount
+        .saturating_mul(market_fill_txs)
+        .saturating_add(cli.order_amount)
+}
+
+fn resting_limit_sell_price(match_price: u64) -> u64 {
+    match_price.saturating_add(100 * TICK_SIZE)
+}
+
+fn is_market_burst_order(seq: u64) -> bool {
+    seq % MARKET_ORDER_EVERY == 0
+}
+
+fn burst_market_sell_params(market: &SpotMarketInfo, order_amount: u64) -> PlaceOrderParams {
+    PlaceOrderParams {
+        side: OrderSide::Sell,
+        amount: order_amount,
+        order_type: OrderParamsType::Market {
+            slippage: BURST_SLIPPAGE,
+        },
+        limit_price: market.match_price,
+        token_address: market.base_token,
+    }
+}
+
+fn burst_limit_sell_params(market: &SpotMarketInfo, order_amount: u64) -> PlaceOrderParams {
+    PlaceOrderParams {
+        side: OrderSide::Sell,
+        amount: order_amount,
+        order_type: OrderParamsType::Limit {
+            tif: TimeInForce::GTC,
+        },
+        limit_price: resting_limit_sell_price(market.match_price),
+        token_address: market.base_token,
+    }
+}
+
+fn burst_order_params(market: &SpotMarketInfo, order_amount: u64, seq: u64) -> PlaceOrderParams {
+    if is_market_burst_order(seq) {
+        burst_market_sell_params(market, order_amount)
+    } else {
+        burst_limit_sell_params(market, order_amount)
+    }
+}
+
+fn quote_supply_for_market(cli: &Cli, market_index: usize, fund_amount: u64) -> u64 {
+    let bid_base = bid_liquidity_base(cli, market_index);
+    quote_for_base(bid_base, market_match_price(market_index)).saturating_add(fund_amount)
 }
 
 fn extract_token_addresses_from_events(
@@ -128,7 +192,7 @@ fn extract_markets_from_events(
                             market_address: market_created_event.market_address,
                             base_token: market_created_event.base_token,
                             quote_token: market_created_event.quote_token,
-                            ask_price: market_ask_price(market_index),
+                            match_price: market_match_price(market_index),
                         });
                     }
                 }
@@ -218,10 +282,9 @@ async fn measure_create_token_latency(
 async fn create_tokens(
     client: &LightPoolClient,
     creator: &Signer,
+    cli: &Cli,
     num_tokens: usize,
     fund_amount: u64,
-    senders: usize,
-    num_markets: usize,
 ) -> Result<Vec<ContractAddress>, String> {
     info!("Creating {} tokens...", num_tokens);
 
@@ -236,12 +299,12 @@ async fn create_tokens(
             let market_index = token_index / 2;
             let is_base = token_index % 2 == 0;
             let total_supply = if is_base {
-                let market_senders = senders_for_market(senders, num_markets, market_index);
+                let market_senders = senders_for_market(cli.senders, cli.num_markets, market_index);
                 fund_amount
                     .saturating_mul(market_senders as u64)
                     .saturating_add(fund_amount)
             } else {
-                fund_amount
+                quote_supply_for_market(cli, market_index, fund_amount)
             };
 
             let create_params = CreateTokenParams {
@@ -408,6 +471,71 @@ async fn fund_burst_senders(
     Ok(())
 }
 
+async fn seed_resting_bids(
+    client: &LightPoolClient,
+    creator: &Signer,
+    markets: &[SpotMarketInfo],
+    cli: &Cli,
+) -> Result<(), String> {
+    if markets.is_empty() {
+        return Ok(());
+    }
+
+    let creator_address = creator.address();
+    let mut bid_actions = Vec::with_capacity(markets.len());
+
+    for (market_index, market) in markets.iter().enumerate() {
+        let bid_base = bid_liquidity_base(cli, market_index);
+        let order_params = PlaceOrderParams {
+            side: OrderSide::Buy,
+            amount: bid_base,
+            order_type: OrderParamsType::Limit {
+                tif: TimeInForce::GTC,
+            },
+            limit_price: market.match_price,
+            token_address: market.quote_token,
+        };
+        let action = ActionBuilder::place_order(market.market_address, order_params)
+            .map_err(|e| format!("Failed to create resting bid action: {}", e))?;
+        bid_actions.push(action);
+    }
+
+    info!(
+        "Seeding {} resting GTC bids (one per market) for burst market sells to fill...",
+        bid_actions.len()
+    );
+
+    for (batch_id, chunk) in bid_actions.chunks(SETUP_ACTIONS_BATCH).enumerate() {
+        let mut tx_builder = TransactionBuilder::new()
+            .sender(creator_address)
+            .expiration(u64::MAX);
+
+        for action in chunk {
+            tx_builder = tx_builder.add_action(action.clone());
+        }
+
+        let tx = tx_builder
+            .build_and_sign_only(creator)
+            .map_err(|e| format!("Failed to build resting bid transaction: {}", e))?;
+
+        let response = client.submit_transaction(tx).await.map_err(|e| {
+            format!("Failed to submit resting bid transaction batch {batch_id}: {e}")
+        })?;
+
+        if !response.receipt.is_success() {
+            if let ExecutionStatus::Failure(error_msg) = &response.receipt.status {
+                return Err(format!(
+                    "Resting bid transaction batch {batch_id} failed: {error_msg}"
+                ));
+            }
+            return Err(format!("Resting bid transaction batch {batch_id} failed"));
+        }
+    }
+
+    info!("Resting bids placed on all markets");
+    Ok(())
+}
+
 fn build_burst_senders(senders: usize, num_markets: usize) -> Vec<BurstSpotSender> {
     (0..senders)
         .map(|index| {
@@ -427,19 +555,9 @@ fn measure_place_order_tx_size(
     market: &SpotMarketInfo,
     order_amount: u64,
 ) -> Result<usize, String> {
-    let order_params = PlaceOrderParams {
-        side: OrderSide::Sell,
-        amount: order_amount,
-        order_type: OrderParamsType::Limit {
-            tif: TimeInForce::GTC,
-        },
-        limit_price: market.ask_price,
-        token_address: market.base_token,
-    };
-
     let place_order_action = ActionBuilder::place_order(
         market.market_address,
-        order_params,
+        burst_limit_sell_params(market, order_amount),
     )
     .map_err(|e| format!("Failed to create place order action: {}", e))?;
 
@@ -512,19 +630,9 @@ async fn burst_place_order_task(
         let sender = &senders[sender_index];
         let market = &markets[sender.market_index];
 
-        let order_params = PlaceOrderParams {
-            side: OrderSide::Sell,
-            amount: order_amount,
-            order_type: OrderParamsType::Limit {
-                tif: TimeInForce::GTC,
-            },
-            limit_price: market.ask_price,
-            token_address: market.base_token,
-        };
-
         let place_order_action = ActionBuilder::place_order(
             market.market_address,
-            order_params,
+            burst_order_params(market, order_amount, tx_count),
         )
         .map_err(|e| format!("Task {}: Failed to create place order action: {}", task_id, e))?;
 
@@ -629,10 +737,9 @@ async fn main() -> Result<(), String> {
     let _tokens = create_tokens(
         &client,
         creator.as_ref(),
+        &cli,
         num_tokens,
         fund_amount,
-        cli.senders,
-        cli.num_markets,
     )
     .await?;
 
@@ -655,9 +762,15 @@ async fn main() -> Result<(), String> {
     info!("Waiting for market creation to be processed...");
     tokio::time::sleep(Duration::from_secs(1)).await;
 
+    info!("Phase 3: Seeding resting bids (quote) on each market...");
+    seed_resting_bids(&client, creator.as_ref(), &markets, &cli).await?;
+
+    info!("Waiting for resting bids to be processed...");
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
     let senders = build_burst_senders(cli.senders, cli.num_markets);
 
-    info!("Phase 3: Funding senders...");
+    info!("Phase 4: Funding senders with base...");
     fund_burst_senders(
         &client,
         creator.as_ref(),
@@ -691,7 +804,8 @@ async fn main() -> Result<(), String> {
     }
 
     info!(
-        "Starting burst spot orders: {} tasks over {} senders across {} markets...",
+        "Starting burst: 1/{MARKET_ORDER_EVERY} market sells (fill bids) + rest GTC limit sells above bid; \
+         {} tasks, {} senders, {} markets...",
         cli.tasks,
         senders.len(),
         markets.len()
@@ -788,19 +902,9 @@ async fn main() -> Result<(), String> {
     let final_sender = &senders[0];
     let final_market = &markets[final_sender.market_index];
     let final_tx_success = match (|| async {
-        let final_order_params = PlaceOrderParams {
-            side: OrderSide::Sell,
-            amount: cli.order_amount,
-            order_type: OrderParamsType::Limit {
-                tif: TimeInForce::GTC,
-            },
-            limit_price: final_market.ask_price,
-            token_address: final_market.base_token,
-        };
-
         let final_place_order_action = ActionBuilder::place_order(
             final_market.market_address,
-            final_order_params,
+            burst_order_params(final_market, cli.order_amount, 0),
         )
         .map_err(|e| format!("Failed to create final place order action: {}", e))?;
 
