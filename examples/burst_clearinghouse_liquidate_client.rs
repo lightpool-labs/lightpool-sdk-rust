@@ -25,10 +25,7 @@
 //!
 //! One mempool TCP connection is shared across all phases via an async channel.
 
-use std::fs::OpenOptions;
-use std::io::Write;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -39,12 +36,12 @@ use futures::SinkExt;
 use lightpool_sdk::{
     extract_margin_created_from_events, extract_market_address_from_events,
     extract_pool_created_from_events, extract_token_address_from_events, margin_trading_account,
-    ActionBuilder, Address, AllocateStakeParams, BondLplParams, BorrowParams, ClearingHouseEvent,
+    ActionBuilder, Address, AllocateStakeParams, BondLplParams, BorrowParams,
     ContractAddress, CreateMarginParams, CreateMarketParams, CreatePoolParams, CreateTokenParams,
-    InitStakingConfigParams, LightPoolClient, MarketState, Message,
+    InitStakingConfigParams, LightPoolClient, MarketState,
     OrderParamsType, OrderSide, PlaceOrderParams, RegisterValidatorParams, SegmentSize, Signer,
-    StakePurpose, SubmitOraclePriceParams, Subscription, SupplyParams, TimeInForce,
-    TransactionBuilder, TransferParams, WebSocketClient, MARGIN_MODE_ISOLATED, TOKEN_SCALE,
+    StakePurpose, SubmitOraclePriceParams, SupplyParams, TimeInForce,
+    TransactionBuilder, TransferParams, MARGIN_MODE_ISOLATED, TOKEN_SCALE,
 };
 use lightpool_sdk::lightpool_types::{
     margin_account_contract, market_contract, pool_contract,
@@ -261,10 +258,6 @@ struct Cli {
     /// Still send ora_submit, but at healthy TRADE_PRICE (no crash → no liquidations).
     #[clap(long, default_value_t = false)]
     no_liquidate: bool,
-
-    /// Append liquidated position events from NewBlock WS to this JSONL file.
-    #[clap(long, default_value = "liquidations.jsonl")]
-    liq_log: PathBuf,
 }
 
 #[derive(Clone)]
@@ -574,7 +567,6 @@ fn spawn_mempool_worker(
                 }
             }
         }
-        info!("Mempool worker stopped");
     });
     (MempoolOut { tx }, handle)
 }
@@ -1614,116 +1606,6 @@ async fn finalize_spot_burst_metrics(
     );
 }
 
-/// Subscribe to NewBlocks; append each ClearingHouseEvent::Liquidated as one JSONL line.
-async fn run_liquidation_ws_logger(
-    ws_url: String,
-    out_path: PathBuf,
-    stop: Arc<AtomicBool>,
-    counter: Arc<AtomicU64>,
-) -> Result<(), String> {
-    let mut ws_client = WebSocketClient::new(Some(ws_url.clone()))
-        .await
-        .map_err(|e| format!("ws client: {e}"))?;
-    let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
-    let sub_id = ws_client
-        .subscribe(Subscription::NewBlocks, sender)
-        .await
-        .map_err(|e| format!("subscribe NewBlocks: {e}"))?;
-    info!(
-        "Liquidation WS logger subscribed ({sub_id}) → {}",
-        out_path.display()
-    );
-
-    let mut file = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(&out_path)
-        .map_err(|e| format!("open {}: {e}", out_path.display()))?;
-
-    let mut blocks_seen = 0u64;
-    let mut blocks_with_liq = 0u64;
-    let mut parse_ok = 0u64;
-
-    let mut write_block = |block: &lightpool_sdk::ReceiptBlock| -> Result<(), String> {
-        blocks_seen += 1;
-        parse_ok += 1;
-        if block.clearinghouse_events.is_empty() {
-            return Ok(());
-        }
-        blocks_with_liq += 1;
-        for ev in &block.clearinghouse_events {
-            let ClearingHouseEvent::Liquidated {
-                margin,
-                liquidator,
-                repay_amount,
-                seized_amount,
-                debt,
-            } = ev;
-            let line = json!({
-                "block_num": block.block_num,
-                "margin": margin.to_string(),
-                "liquidator": liquidator.to_string(),
-                "repay_amount": repay_amount,
-                "seized_amount": seized_amount,
-                "debt": debt,
-            });
-            writeln!(file, "{line}")
-                .map_err(|e| format!("write {}: {e}", out_path.display()))?;
-            counter.fetch_add(1, Ordering::Relaxed);
-        }
-        let _ = file.flush();
-        Ok(())
-    };
-
-    // Recv + write until main signals stop (or WS closes / errors).
-    while !stop.load(Ordering::Relaxed) {
-        tokio::select! {
-            msg = receiver.recv() => {
-                match msg {
-                    Some(Message::NewBlock(block) | Message::ReceiptBlock(block)) => {
-                        write_block(&block)?;
-                    }
-                    Some(Message::Error(err)) => {
-                        warn!("Liquidation WS error: {err}");
-                        break;
-                    }
-                    None => break,
-                }
-            }
-            _ = tokio::time::sleep(Duration::from_millis(100)) => {}
-        }
-    }
-
-    // After stop: drain late NewBlocks for a few seconds.
-    info!("Liquidation WS logger draining for 5s after stop...");
-    let drain_deadline = Instant::now() + Duration::from_secs(5);
-    while Instant::now() < drain_deadline {
-        match tokio::time::timeout(Duration::from_millis(200), receiver.recv()).await {
-            Ok(Some(Message::NewBlock(block) | Message::ReceiptBlock(block))) => {
-                write_block(&block)?;
-            }
-            Ok(Some(Message::Error(err))) => {
-                warn!("Liquidation WS error during drain: {err}");
-                break;
-            }
-            Ok(None) => break,
-            Err(_) => {}
-        }
-    }
-
-    let _ = file.flush();
-    info!(
-        "Liquidation WS logger stopped; blocks={} parsed={} with_liq={} events={} → {}",
-        blocks_seen,
-        parse_ok,
-        blocks_with_liq,
-        counter.load(Ordering::Relaxed),
-        out_path.display()
-    );
-    Ok(())
-}
-
 async fn setup_staking_committee(
     client: &LightPoolClient,
     validator: &Signer,
@@ -2073,21 +1955,6 @@ async fn main() -> Result<(), String> {
         );
     }
 
-    let ws_url = format!("ws://{}:26400", cli.address);
-    let liq_ws_stop = Arc::new(AtomicBool::new(false));
-    let liq_ws_count = Arc::new(AtomicU64::new(0));
-    let liq_ws_handle = {
-        let stop = Arc::clone(&liq_ws_stop);
-        let counter = Arc::clone(&liq_ws_count);
-        let path = cli.liq_log.clone();
-        tokio::spawn(async move {
-            if let Err(e) = run_liquidation_ws_logger(ws_url, path, stop, counter).await {
-                warn!("Liquidation WS logger failed: {e}");
-            }
-        })
-    };
-    tokio::time::sleep(Duration::from_millis(300)).await;
-
     let oracle_markets: Arc<Vec<ContractAddress>> = Arc::new(
         burst_markets
             .iter()
@@ -2150,21 +2017,6 @@ async fn main() -> Result<(), String> {
         baseline_latency,
     )
     .await;
-
-    info!(
-        "Phase 6 done: ora_submit queued≈{}, liquidations logged={}",
-        oracle_counter.load(Ordering::Relaxed),
-        liq_ws_count.load(Ordering::Relaxed)
-    );
-
-    // Stop logger: abort unblocks receiver.recv(); remaining events already flushed on each write.
-    liq_ws_stop.store(true, Ordering::Relaxed);
-    let _ = liq_ws_handle.await;
-    info!(
-        "Liquidations logged: {} → {}",
-        liq_ws_count.load(Ordering::Relaxed),
-        cli.liq_log.display()
-    );
 
     drop(mempool_out);
     let _ = mempool_worker.await;
