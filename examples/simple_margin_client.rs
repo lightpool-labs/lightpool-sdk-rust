@@ -225,6 +225,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         pool,
         mode: MARGIN_MODE_ISOLATED,
         market: Some(market),
+        amount: COLLATERAL,
+        margin: None,
     })?;
     let create_margin_tx = TransactionBuilder::new()
         .sender(borrower)
@@ -240,8 +242,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .expect("missing event margin_account_created");
                 let trading = margin_trading_account(created.margin);
                 println!(
-                    "   event margin_account_created: margin={}, pool={}, owner={}, mode={}, market={:?}",
-                    created.margin, created.pool, created.owner, created.mode, created.market
+                    "   event margin_account_created: margin={}, pool={}, owner={}, mode={}, market={:?}, amount={}",
+                    created.margin, created.pool, created.owner, created.mode, created.market, created.amount
                 );
                 println!("   Trading account: {}", trading);
                 (created.margin, trading)
@@ -297,6 +299,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let borrow_action = ActionBuilder::borrow_margin(
         margin,
         BorrowParams {
+            pool,
             amount: BORROW_AMOUNT,
         },
     )?;
@@ -515,6 +518,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let liqd_action = ActionBuilder::liquidate_margin(
         margin,
         LiquidateParams {
+            pool,
             repay_amount: BORROW_AMOUNT,
         },
     )?;

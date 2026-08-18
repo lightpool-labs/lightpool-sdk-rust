@@ -30,6 +30,10 @@ pub struct CreateMarginParams {
     /// 0 = Cross, 1 = Isolated
     pub mode: u8,
     pub market: Option<ContractAddress>,
+    pub amount: u64,
+    /// When set, create at this margin account address (testing only).
+    #[serde(default)]
+    pub margin: Option<ContractAddress>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,16 +48,19 @@ pub struct WithdrawCollateralParams {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BorrowParams {
+    pub pool: ContractAddress,
     pub amount: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RepayParams {
+    pub pool: ContractAddress,
     pub amount: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LiquidateParams {
+    pub pool: ContractAddress,
     pub repay_amount: u64,
 }
 

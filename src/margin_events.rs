@@ -41,6 +41,7 @@ pub struct MarginCreatedEvent {
     pub owner: Address,
     pub mode: u8,
     pub market: Option<ContractAddress>,
+    pub amount: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -203,6 +204,7 @@ pub fn parse_margin_event_data(event_type: &EventType, data: &EventData) -> Opti
                     "owner": event.owner.to_string(),
                     "mode": event.mode,
                     "market": event.market.map(|m| m.to_string()),
+                    "amount": format_token_amount(event.amount),
                 }))
             }
             "margin_collateral_deposited" => {

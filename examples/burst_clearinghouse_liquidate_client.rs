@@ -6,8 +6,10 @@
 //! ```bash
 //! cargo run --release --example burst_clearinghouse_liquidate_client -- \
 //!   --positions 200 --total-positions 200000 \
-//!   --num-markets 500 --senders 1024 --rate-per-task 500 --duration 10
+//!   --num-markets 500 --senders 1024 --rate-per-task 200000 --duration 10
 //! ```
+//!
+//! Isolated margin positions use 200 dedicated markets (200k total → 1000/mkt).
 //!
 //! ## Phases (sequential)
 //! 1. Promote committee (staking allocate)
@@ -15,7 +17,10 @@
 //! 3. Spot markets + fund senders
 //! 4. Mempool-burst setup isolated positions
 //! 5. Pass first checkpoint only if tip is still below it (skip burst if already past)
-//! 6. `ora_submit` first (quiet mempool), then spot place_order load (crash → liquidate, or `--no-liquidate`)
+//! 6. Mempool burst @ `--rate-per-task`: spot `place_order` mixed with stepped
+//!    crash-mark `ora_submit` (~100 marks per ~2k-tx block) so each mark newly
+//!    liquidates [`LIQS_PER_MARK`] ladder positions per market; remaining positions
+//!    stay healthy (decoys filling clearinghouse scan load).
 //!
 //! One mempool TCP connection is shared across all phases via an async channel.
 
@@ -35,7 +40,7 @@ use lightpool_sdk::{
     extract_pool_created_from_events, extract_token_address_from_events, margin_trading_account,
     ActionBuilder, Address, AllocateStakeParams, BondLplParams, BorrowParams, ClearingHouseEvent,
     ContractAddress, CreateMarginParams, CreateMarketParams, CreatePoolParams, CreateTokenParams,
-    DepositCollateralParams, InitStakingConfigParams, LightPoolClient, MarketState, Message,
+    InitStakingConfigParams, LightPoolClient, MarketState, Message,
     OrderParamsType, OrderSide, PlaceOrderParams, RegisterValidatorParams, SegmentSize, Signer,
     StakePurpose, SubmitOraclePriceParams, Subscription, SupplyParams, TimeInForce,
     TransactionBuilder, TransferParams, WebSocketClient, MARGIN_MODE_ISOLATED, TOKEN_SCALE,
@@ -46,7 +51,7 @@ use lightpool_sdk::lightpool_types::{
 use log::{error, info, warn};
 use serde_json::json;
 use tokio::net::TcpStream;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
 const TICK_SIZE: u64 = 1_000_000;
@@ -61,23 +66,150 @@ const BOND_AMOUNT: u64 = 50_000 * TOKEN_SCALE;
 
 /// Healthy entry mark / trade price.
 const TRADE_PRICE: u64 = 50_000 * TOKEN_SCALE;
-/// Crash mark used for oracle / liquidation bids.
-const CRASH_PRICE: u64 = 1_000 * TOKEN_SCALE;
+/// Highest crash mark (human USDT); ora steps 1000, 999, 998, … so each step
+/// newly liquidates [`LIQS_PER_MARK`] positions per market.
+const CRASH_MARK_START: u64 = 1_000;
+const LIQS_PER_MARK: usize = 2;
+const MAINT_BPS: u64 = 8_500;
+const BPS_DENOM: u64 = 10_000;
+/// Resting bid at top crash mark (still matches IOC sells at lower marks).
+const CRASH_BID_PRICE: u64 = CRASH_MARK_START * TOKEN_SCALE;
 const TRADE_AMOUNT: u64 = 1 * TOKEN_SCALE;
-const COLLATERAL: u64 = 20_000 * TOKEN_SCALE;
 const BORROW_AMOUNT: u64 = 40_000 * TOKEN_SCALE;
 
 const POOLS: usize = 100;
 const BORROWERS: usize = 10_000;
 /// Isolated-position markets (round-robin); separate from Phase 6 spot burst markets.
-const POSITION_MARKETS: usize = 500;
-const LIQ_MARKETS: usize = 100;
-const BLOCKS_PER_SEC: u64 = 20;
-const SETUP_BURST_RATE: u64 = 100_000;
+const POSITION_MARKETS: usize = 200;
+/// Default count of positions on the crash mark ladder (rest are healthy decoys).
+const DEFAULT_LIQUIDATABLE_POSITIONS: usize = 40_000;
+/// Decoy positions stay healthy through oracle marks down to this human price.
+const DECOY_SAFE_MARK_HUMAN: u64 = 1;
+/// Packed block size used to mix oracle marks into the place_order burst (~100 marks / 2k txs).
+const BURST_BLOCK_TXS: usize = 2_000;
+const SETUP_BURST_RATE: u64 = 200_000;
+/// Max wait for a post-burst RPC drain probe (create_token receipt).
+const DRAIN_RPC_TIMEOUT_SECS: u64 = 3600;
 const SPOT_ORDER_AMOUNT: u64 = 100_000;
 const CHECKPOINT_TIMEOUT_SECS: u64 = 3600;
 const CHECKPOINT_BURST_RATE: u64 = 1000;
-const MEMPOOL_CHANNEL_CAP: usize = 16_384;
+const MEMPOOL_CHANNEL_CAP: usize = 200_000;
+const PROGRESS_LOG_EVERY: Duration = Duration::from_secs(1);
+
+/// Human mark where this ladder slot (within a market) becomes liquidatable.
+fn mark_human_for_ladder_slot(ladder_slot: usize) -> u64 {
+    let step = ladder_slot / LIQS_PER_MARK;
+    CRASH_MARK_START.saturating_sub(step as u64).max(1)
+}
+
+fn is_ladder_position(global_idx: usize, liquidatable_cap: usize) -> bool {
+    global_idx < liquidatable_cap
+}
+
+fn ladder_slot_on_market(global_idx: usize, num_markets: usize) -> usize {
+    global_idx / num_markets
+}
+
+/// Deposit so the account stays healthy at `mark_human` after borrow + buy.
+fn deposit_healthy_at_mark(mark_human: u64) -> u64 {
+    let mark = mark_human.saturating_mul(TOKEN_SCALE);
+    let d_quote = BORROW_AMOUNT.saturating_mul(BPS_DENOM) / MAINT_BPS;
+    let min_v = d_quote.saturating_add(TOKEN_SCALE);
+    min_v
+        .saturating_sub(BORROW_AMOUNT)
+        .saturating_add(TRADE_PRICE)
+        .saturating_sub(mark)
+        .max(TRADE_PRICE.saturating_add(TOKEN_SCALE))
+}
+
+fn deposit_for_position(global_idx: usize, num_markets: usize, liquidatable_cap: usize) -> u64 {
+    if is_ladder_position(global_idx, liquidatable_cap) {
+        deposit_for_mark_threshold(mark_human_for_ladder_slot(ladder_slot_on_market(
+            global_idx,
+            num_markets,
+        )))
+    } else {
+        deposit_healthy_at_mark(DECOY_SAFE_MARK_HUMAN)
+    }
+}
+
+fn max_deposit_for_setup(liquidatable_cap: usize, num_markets: usize) -> u64 {
+    let ladder_per_market = liquidatable_cap.div_ceil(num_markets.max(1));
+    let ladder_max = if ladder_per_market == 0 {
+        0
+    } else {
+        deposit_for_mark_threshold(mark_human_for_ladder_slot(ladder_per_market - 1))
+    };
+    ladder_max.max(deposit_healthy_at_mark(DECOY_SAFE_MARK_HUMAN))
+}
+
+/// Deposit so after borrow [`BORROW_AMOUNT`] + buy 1 BTC @ [`TRADE_PRICE`], the
+/// account is healthy at `mark_human+1` and liquidatable at `mark_human`.
+fn deposit_for_mark_threshold(mark_human: u64) -> u64 {
+    let mark = mark_human.saturating_mul(TOKEN_SCALE);
+    let d_quote = BORROW_AMOUNT.saturating_mul(BPS_DENOM) / MAINT_BPS;
+    let leftover = d_quote
+        .saturating_sub(mark)
+        .saturating_sub(TOKEN_SCALE / 2);
+    leftover
+        .saturating_add(TRADE_PRICE)
+        .saturating_sub(BORROW_AMOUNT)
+        .max(TRADE_PRICE.saturating_add(TOKEN_SCALE))
+}
+
+enum MempoolJob {
+    Tx(Bytes),
+    Flush(oneshot::Sender<()>),
+}
+
+/// Flush mempool TCP sends, then submit a tiny RPC tx and wait for its receipt so
+/// prior burst txs are committed before the next dependent phase.
+async fn wait_phase_commit_via_rpc(
+    client: &LightPoolClient,
+    out: &MempoolOut,
+    driver: &Signer,
+    label: &str,
+    probe_seq: &mut u64,
+    prior_tx_count: usize,
+) -> Result<(), String> {
+    if prior_tx_count == 0 {
+        return Ok(());
+    }
+    info!("{label}: flushing {prior_tx_count} mempool txs then RPC drain probe");
+    out.flush().await?;
+    let start = Instant::now();
+    let name = format!("Drain{label}{}", *probe_seq);
+    *probe_seq += 1;
+    let drain_client = client
+        .clone()
+        .with_timeout(Duration::from_secs(DRAIN_RPC_TIMEOUT_SECS));
+    let mut drain = Box::pin(async {
+        create_token(&drain_client, driver, &name, "DR", 1)
+            .await
+            .map(|_| ())
+            .map_err(|e| format!("{label}: drain RPC probe failed: {e}"))
+    });
+    let mut tick = tokio::time::interval(PROGRESS_LOG_EVERY);
+    tick.tick().await;
+    loop {
+        tokio::select! {
+            res = drain.as_mut() => {
+                res?;
+                info!(
+                    "{label}: drain RPC receipt ok in {:.3}s",
+                    start.elapsed().as_secs_f64()
+                );
+                return Ok(());
+            }
+            _ = tick.tick() => {
+                info!(
+                    "{label}: drain waiting {:.0}s ({prior_tx_count} prior txs)",
+                    start.elapsed().as_secs_f64()
+                );
+            }
+        }
+    }
+}
 
 #[derive(Parser, Debug)]
 #[clap(
@@ -97,6 +229,10 @@ struct Cli {
     #[clap(long, default_value = "200000")]
     total_positions: usize,
 
+    /// Positions on the crash mark ladder (liquidatable); rest stay healthy decoys.
+    #[clap(long, default_value_t = DEFAULT_LIQUIDATABLE_POSITIONS)]
+    liquidatable_positions: usize,
+
     /// Number of spot markets to create (Phase 6 place_order burst).
     #[clap(long, default_value = "500")]
     num_markets: usize,
@@ -106,7 +242,7 @@ struct Cli {
     senders: usize,
 
     /// Mempool send rate for the single shared connection (tx/s).
-    #[clap(short, long, default_value = "500")]
+    #[clap(short, long, default_value = "200000")]
     rate_per_task: u64,
 
     /// Duration to run burst trading / oracle window (seconds).
@@ -145,6 +281,13 @@ struct BurstSpotSender {
     signer: Arc<Signer>,
     address: Address,
     market_index: usize,
+}
+
+struct OracleBurstMix {
+    lender: Arc<Signer>,
+    markets: Arc<Vec<ContractAddress>>,
+    every_n: usize,
+    sent: Arc<AtomicU64>,
 }
 
 fn quote_for_base(amount: u64, price: u64) -> u64 {
@@ -295,15 +438,25 @@ fn load_default_wallet_signer() -> Result<Signer, String> {
 /// Shared mempool ingress: producers enqueue tx bytes; one worker owns the TCP connection.
 #[derive(Clone)]
 struct MempoolOut {
-    tx: mpsc::Sender<Bytes>,
+    tx: mpsc::Sender<MempoolJob>,
 }
 
 impl MempoolOut {
     async fn send(&self, bytes: Bytes) -> Result<(), String> {
         self.tx
-            .send(bytes)
+            .send(MempoolJob::Tx(bytes))
             .await
             .map_err(|_| "mempool channel closed".to_string())
+    }
+
+    async fn flush(&self) -> Result<(), String> {
+        let (done, rx) = oneshot::channel();
+        self.tx
+            .send(MempoolJob::Flush(done))
+            .await
+            .map_err(|_| "mempool channel closed".to_string())?;
+        rx.await
+            .map_err(|_| "mempool flush ack dropped".to_string())
     }
 }
 
@@ -311,7 +464,7 @@ fn spawn_mempool_worker(
     addr: String,
     rate: Arc<AtomicU64>,
 ) -> (MempoolOut, tokio::task::JoinHandle<()>) {
-    let (tx, mut rx) = mpsc::channel::<Bytes>(MEMPOOL_CHANNEL_CAP);
+    let (tx, mut rx) = mpsc::channel::<MempoolJob>(MEMPOOL_CHANNEL_CAP);
     let handle = tokio::spawn(async move {
         let stream = match TcpStream::connect(&addr).await {
             Ok(s) => s,
@@ -325,32 +478,40 @@ fn spawn_mempool_worker(
         let mut tokens = 0.0f64;
         let mut last = Instant::now();
         let mut last_rate = 0u64;
-        while let Some(bytes) = rx.recv().await {
-            // Reload rate every wait tick so Phase 5 (500/s) vs setup (100k/s) applies immediately.
-            loop {
-                let effective_u64 = rate.load(Ordering::Relaxed).max(1);
-                let effective = effective_u64 as f64;
-                let cap = effective.max(1.0);
-                if effective_u64 != last_rate {
-                    // Drop leftover burst capacity when rate drops (e.g. 100k → 500).
-                    tokens = tokens.min(cap);
-                    last_rate = effective_u64;
+        while let Some(job) = rx.recv().await {
+            match job {
+                MempoolJob::Flush(done) => {
+                    let _ = done.send(());
                 }
-                let now = Instant::now();
-                tokens = (tokens + now.duration_since(last).as_secs_f64() * effective).min(cap);
-                last = now;
-                if tokens >= 1.0 {
-                    tokens -= 1.0;
-                    break;
+                MempoolJob::Tx(bytes) => {
+                    // Reload rate every wait tick so Phase 5 (500/s) vs setup (100k/s) applies immediately.
+                    loop {
+                        let effective_u64 = rate.load(Ordering::Relaxed).max(1);
+                        let effective = effective_u64 as f64;
+                        let cap = effective.max(1.0);
+                        if effective_u64 != last_rate {
+                            // Drop leftover burst capacity when rate drops (e.g. 100k → 500).
+                            tokens = tokens.min(cap);
+                            last_rate = effective_u64;
+                        }
+                        let now = Instant::now();
+                        tokens =
+                            (tokens + now.duration_since(last).as_secs_f64() * effective).min(cap);
+                        last = now;
+                        if tokens >= 1.0 {
+                            tokens -= 1.0;
+                            break;
+                        }
+                        let wait = Duration::from_secs_f64(((1.0 - tokens) / effective).max(0.0))
+                            .max(Duration::from_micros(50))
+                            .min(Duration::from_millis(5));
+                        tokio::time::sleep(wait).await;
+                    }
+                    if transport.send(bytes).await.is_err() {
+                        error!("mempool worker send failed; exiting");
+                        return;
+                    }
                 }
-                let wait = Duration::from_secs_f64(((1.0 - tokens) / effective).max(0.0))
-                    .max(Duration::from_micros(50))
-                    .min(Duration::from_millis(5));
-                tokio::time::sleep(wait).await;
-            }
-            if transport.send(bytes).await.is_err() {
-                error!("mempool worker send failed; exiting");
-                break;
             }
         }
         info!("Mempool worker stopped");
@@ -372,6 +533,8 @@ where
     if count == 0 {
         return Ok(0);
     }
+    let spray_start = Instant::now();
+    let mut last_log = spray_start;
     let mut sent = 0u64;
     for idx in 0..count {
         let bytes = build_one(idx, *expiration)?;
@@ -380,10 +543,17 @@ where
             .await
             .map_err(|e| format!("{label}: {e}"))?;
         sent += 1;
-        if sent == count as u64 || sent % 16_384 == 0 {
-            info!("{label}: queued {sent}/{count}");
+        if last_log.elapsed() >= PROGRESS_LOG_EVERY {
+            let rate = sent as f64 / spray_start.elapsed().as_secs_f64().max(1e-9);
+            info!("{label}: queued {sent}/{count} ({rate:.0}/s enqueue)");
+            last_log = Instant::now();
         }
     }
+    info!(
+        "{label}: queued {sent}/{count} in {:.2}s ({:.0}/s enqueue)",
+        spray_start.elapsed().as_secs_f64(),
+        sent as f64 / spray_start.elapsed().as_secs_f64().max(1e-9)
+    );
     Ok(sent)
 }
 
@@ -409,6 +579,7 @@ fn sign_actions_tx(
     bincode::serialize(&signed).map_err(|e| format!("serialize setup tx: {e}"))
 }
 
+/// Unsigned mempool txs (Signature::default) for high-TPS setup when `validate_auth` is off.
 fn unsigned_actions_tx(
     sender: Address,
     account: Option<Address>,
@@ -443,6 +614,8 @@ async fn setup_positions_mempool_burst(
     total_positions: usize,
     num_borrowers: usize,
     num_markets: usize,
+    liquidatable_cap: usize,
+    probe_seq: &mut u64,
 ) -> Result<Vec<PositionFixture>, String> {
     if pools.is_empty() {
         return Err("pools must be non-empty".into());
@@ -451,7 +624,8 @@ async fn setup_positions_mempool_burst(
     let num_markets = num_markets.max(1).min(total_positions);
     let per_borrower_positions =
         (total_positions + num_borrowers - 1) / num_borrowers;
-    let fund_each = COLLATERAL.saturating_mul(per_borrower_positions as u64);
+    let max_deposit = max_deposit_for_setup(liquidatable_cap, num_markets);
+    let fund_each = max_deposit.saturating_mul(per_borrower_positions as u64);
     let setup_start = Instant::now();
     let keygen_start = Instant::now();
     let borrowers: Vec<Arc<Signer>> = (0..num_borrowers)
@@ -462,6 +636,12 @@ async fn setup_positions_mempool_burst(
         keygen_start.elapsed()
     );
     let borrower_for = |i: usize| -> &Arc<Signer> { &borrowers[i % num_borrowers] };
+
+    info!(
+        "Position ladder: {liquidatable_cap} liquidatable + {} decoys on {num_markets} markets (~{} ladder/mkt)",
+        total_positions.saturating_sub(liquidatable_cap),
+        liquidatable_cap.div_ceil(num_markets)
+    );
 
     // Probe first market index via RPC.
     let probe_market_action = ActionBuilder::create_market(CreateMarketParams {
@@ -525,7 +705,15 @@ async fn setup_positions_mempool_burst(
         },
     )
     .await?;
-    info!("create_market burst sent {market_sent}");
+    wait_phase_commit_via_rpc(
+        client,
+        out,
+        lender.as_ref(),
+        "create_market",
+        probe_seq,
+        market_sent as usize,
+    )
+    .await?;
 
     let markets: Vec<ContractAddress> = (0..num_markets)
         .map(|i| {
@@ -534,6 +722,12 @@ async fn setup_positions_mempool_burst(
         })
         .collect();
     let market_for = |i: usize| markets[i % num_markets];
+    let positions_per_market = total_positions.div_ceil(num_markets);
+    let book_liquidity_base = TRADE_AMOUNT.saturating_mul(positions_per_market as u64);
+    info!(
+        "Spot book liquidity: one GTC sell + one GTC bid per market ({num_markets} each), \
+         {book_liquidity_base} base/mkt (~{positions_per_market} fills)"
+    );
 
     // Fund borrowers once each (enough collateral for their share of positions).
     let fund_sent = build_and_spray(
@@ -560,13 +754,23 @@ async fn setup_positions_mempool_burst(
         },
     )
     .await?;
-    info!("fund borrowers burst sent {fund_sent} ({} each)", fund_each);
+    wait_phase_commit_via_rpc(
+        client,
+        out,
+        lender.as_ref(),
+        "fund",
+        probe_seq,
+        fund_sent as usize,
+    )
+    .await?;
 
     // Probe first margin index (markets[0] already exists from RPC probe).
     let create_margin0 = ActionBuilder::create_margin_account(CreateMarginParams {
         pool: pools[0],
         mode: MARGIN_MODE_ISOLATED,
         market: Some(market_for(0)),
+        amount: deposit_for_position(0, num_markets, liquidatable_cap),
+        margin: None,
     })
     .map_err(|e| e.to_string())?;
     let margin0_receipt = submit_ok(
@@ -591,17 +795,29 @@ async fn setup_positions_mempool_burst(
         |j, exp| {
             let i = j + 1;
             let borrower = borrower_for(i);
+            let margin = margin_account_contract(margin_start + i as u64)
+                .map_err(|e| e.to_string())?;
             let action = ActionBuilder::create_margin_account(CreateMarginParams {
                 pool: pools[i % pools.len()],
                 mode: MARGIN_MODE_ISOLATED,
                 market: Some(market_for(i)),
+                amount: deposit_for_position(i, num_markets, liquidatable_cap),
+                margin: Some(margin),
             })
             .map_err(|e| e.to_string())?;
             unsigned_actions_tx(borrower.address(), None, vec![action], exp)
         },
     )
     .await?;
-    info!("create_margin burst sent {margin_sent}");
+    wait_phase_commit_via_rpc(
+        client,
+        out,
+        lender.as_ref(),
+        "create_margin",
+        probe_seq,
+        margin_sent as usize,
+    )
+    .await?;
 
     let margins: Vec<ContractAddress> = (0..total_positions)
         .map(|i| {
@@ -610,109 +826,137 @@ async fn setup_positions_mempool_burst(
         })
         .collect();
 
-    let db_sent = build_and_spray(
+    let borrow_sent = build_and_spray(
         out,
-        "deposit+borrow",
+        "borrow",
         total_positions,
         &mut expiration,
         |i, exp| {
             let borrower = borrower_for(i);
-            let deposit = ActionBuilder::deposit_margin_collateral(
-                margins[i],
-                DepositCollateralParams {
-                    amount: COLLATERAL,
-                },
-            )
-            .map_err(|e| e.to_string())?;
             let borrow = ActionBuilder::borrow_margin(
                 margins[i],
                 BorrowParams {
+                    pool: pools[i % pools.len()],
                     amount: BORROW_AMOUNT,
                 },
             )
             .map_err(|e| e.to_string())?;
-            unsigned_actions_tx(
-                borrower.address(),
-                None,
-                vec![deposit, borrow],
-                exp,
-            )
+            unsigned_actions_tx(borrower.address(), None, vec![borrow], exp)
         },
     )
     .await?;
-    info!("deposit+borrow burst sent {db_sent}");
-
-    // seller lists, margin buys, bidder adds liq (3 txs per position; chunk by position count * 3 via flat index)
-    let trade_sent = build_and_spray(
+    wait_phase_commit_via_rpc(
+        client,
         out,
-        "open+bid",
-        total_positions * 3,
+        lender.as_ref(),
+        "borrow",
+        probe_seq,
+        borrow_sent as usize,
+    )
+    .await?;
+
+    // One resting sell per market; margin IOC buys match against it.
+    let sell_sent = build_and_spray(
+        out,
+        "seller_sell",
+        num_markets,
         &mut expiration,
-        |flat, exp| {
-            let i = flat / 3;
-            let kind = flat % 3;
-            let market = market_for(i);
-            match kind {
-                0 => {
-                    let sell = ActionBuilder::place_order(
-                        market,
-                        PlaceOrderParams {
-                            side: OrderSide::Sell,
-                            amount: TRADE_AMOUNT,
-                            order_type: OrderParamsType::Limit {
-                                tif: TimeInForce::GTC,
-                            },
-                            limit_price: TRADE_PRICE,
-                            token_address: btc,
-                        },
-                    )
-                    .map_err(|e| e.to_string())?;
-                    unsigned_actions_tx(seller.address(), None, vec![sell], exp)
-                }
-                1 => {
-                    let borrower = borrower_for(i);
-                    let trading = margin_trading_account(margins[i]);
-                    let buy = ActionBuilder::place_order(
-                        market,
-                        PlaceOrderParams {
-                            side: OrderSide::Buy,
-                            amount: TRADE_AMOUNT,
-                            order_type: OrderParamsType::Limit {
-                                tif: TimeInForce::IOC,
-                            },
-                            limit_price: TRADE_PRICE,
-                            token_address: usdt,
-                        },
-                    )
-                    .map_err(|e| e.to_string())?;
-                    unsigned_actions_tx(
-                        borrower.address(),
-                        Some(trading),
-                        vec![buy],
-                        exp,
-                    )
-                }
-                _ => {
-                    let bid = ActionBuilder::place_order(
-                        market,
-                        PlaceOrderParams {
-                            side: OrderSide::Buy,
-                            amount: TRADE_AMOUNT,
-                            order_type: OrderParamsType::Limit {
-                                tif: TimeInForce::GTC,
-                            },
-                            limit_price: TRADE_PRICE,
-                            token_address: usdt,
-                        },
-                    )
-                    .map_err(|e| e.to_string())?;
-                    unsigned_actions_tx(bidder.address(), None, vec![bid], exp)
-                }
-            }
+        |m, exp| {
+            let sell = ActionBuilder::place_order(
+                markets[m],
+                PlaceOrderParams {
+                    side: OrderSide::Sell,
+                    amount: book_liquidity_base,
+                    order_type: OrderParamsType::Limit {
+                        tif: TimeInForce::GTC,
+                    },
+                    limit_price: TRADE_PRICE,
+                    token_address: btc,
+                },
+            )
+            .map_err(|e| e.to_string())?;
+            unsigned_actions_tx(seller.address(), None, vec![sell], exp)
         },
     )
     .await?;
-    info!("open+bid burst sent {trade_sent}");
+    wait_phase_commit_via_rpc(
+        client,
+        out,
+        lender.as_ref(),
+        "seller_sell",
+        probe_seq,
+        sell_sent as usize,
+    )
+    .await?;
+
+    let buy_sent = build_and_spray(
+        out,
+        "margin_buy",
+        total_positions,
+        &mut expiration,
+        |i, exp| {
+            let borrower = borrower_for(i);
+            let trading = margin_trading_account(margins[i]);
+            let buy = ActionBuilder::place_order(
+                market_for(i),
+                PlaceOrderParams {
+                    side: OrderSide::Buy,
+                    amount: TRADE_AMOUNT,
+                    order_type: OrderParamsType::Limit {
+                        tif: TimeInForce::IOC,
+                    },
+                    limit_price: TRADE_PRICE,
+                    token_address: usdt,
+                },
+            )
+            .map_err(|e| e.to_string())?;
+            unsigned_actions_tx(borrower.address(), Some(trading), vec![buy], exp)
+        },
+    )
+    .await?;
+    wait_phase_commit_via_rpc(
+        client,
+        out,
+        lender.as_ref(),
+        "margin_buy",
+        probe_seq,
+        buy_sent as usize,
+    )
+    .await?;
+
+    // One resting bid per market; clearinghouse IOC sells match during liquidation.
+    let bid_sent = build_and_spray(
+        out,
+        "crash_bid",
+        num_markets,
+        &mut expiration,
+        |m, exp| {
+            let bid = ActionBuilder::place_order(
+                markets[m],
+                PlaceOrderParams {
+                    side: OrderSide::Buy,
+                    amount: book_liquidity_base,
+                    order_type: OrderParamsType::Limit {
+                        tif: TimeInForce::GTC,
+                    },
+                    limit_price: CRASH_BID_PRICE,
+                    token_address: usdt,
+                },
+            )
+            .map_err(|e| e.to_string())?;
+            unsigned_actions_tx(bidder.address(), None, vec![bid], exp)
+        },
+    )
+    .await?;
+    wait_phase_commit_via_rpc(
+        client,
+        out,
+        lender.as_ref(),
+        "crash_bid",
+        probe_seq,
+        bid_sent as usize,
+    )
+    .await?;
 
     let fixtures: Vec<PositionFixture> = (0..total_positions)
         .map(|i| PositionFixture {
@@ -730,74 +974,6 @@ async fn setup_positions_mempool_burst(
     Ok(fixtures)
 }
 
-
-/// Spray ora_submit high→low via shared mempool channel.
-/// Use `CRASH_PRICE` to drive liquidations, or a healthy mark (e.g. `TRADE_PRICE`).
-async fn mempool_oracle_price_burst(
-    out: MempoolOut,
-    lender: Arc<Signer>,
-    markets: Arc<Vec<ContractAddress>>,
-    per_block: usize,
-    blocks_per_sec: u64,
-    duration_secs: u64,
-    oracle_price: u64,
-    counter: Arc<AtomicU64>,
-) -> Result<(), String> {
-    if markets.is_empty() {
-        return Ok(());
-    }
-    let per_block = per_block.max(1);
-    let blocks_per_sec = blocks_per_sec.max(1);
-    let rate_per_second = (per_block as u64).saturating_mul(blocks_per_sec).max(1);
-    info!(
-        "Oracle mempool burst: {} markets high→low @ price={}, ~{}/block × {} blocks/s → pace≈{}/s, duration={}s",
-        markets.len(),
-        oracle_price,
-        per_block,
-        blocks_per_sec,
-        rate_per_second,
-        duration_secs
-    );
-    let end_time = Instant::now() + Duration::from_secs(duration_secs.max(1));
-    let interval = Duration::from_secs_f64(1.0 / rate_per_second as f64);
-    let mut next_rev: usize = 0;
-    let mut tx_count = 0u64;
-    let mut expiration = u64::MAX;
-
-    while Instant::now() < end_time && next_rev < markets.len() {
-        let idx = markets.len() - 1 - next_rev;
-        next_rev += 1;
-        let market = markets[idx];
-        let action = ActionBuilder::submit_oracle_price(
-            market,
-            SubmitOraclePriceParams {
-                price: oracle_price,
-            },
-        )
-        .map_err(|e| format!("oracle action: {e}"))?;
-        let tx = TransactionBuilder::new()
-            .sender(lender.address())
-            .expiration(expiration)
-            .add_action(action)
-            .build_and_sign_only(lender.as_ref())
-            .map_err(|e| format!("oracle sign: {e}"))?;
-        let tx_bytes = bincode::serialize(&tx).map_err(|e| format!("oracle serialize: {e}"))?;
-        if let Err(e) = out.send(Bytes::from(tx_bytes)).await {
-            warn!("oracle mempool enqueue failed: {e}");
-            break;
-        }
-        tx_count += 1;
-        expiration = expiration.saturating_sub(1);
-        counter.fetch_add(1, Ordering::Relaxed);
-        tokio::time::sleep(interval).await;
-    }
-    info!(
-        "Oracle mempool burst queued {tx_count} ora_submit txs (covered {}/{})",
-        next_rev.min(markets.len()),
-        markets.len()
-    );
-    Ok(())
-}
 
 async fn rpc_get_committed_block_num(rpc: &str) -> Result<u64, String> {
     let body = json!({
@@ -826,132 +1002,80 @@ async fn rpc_get_committed_block_num(rpc: &str) -> Result<u64, String> {
         .ok_or_else(|| format!("getSyncInfo missing committed_block_num: {value}"))
 }
 
-async fn wait_for_checkpoint(rpc: &str, target: u64, timeout_secs: u64) -> Result<u64, String> {
-    info!("Waiting for committed_block_num >= {target} (first/next checkpoint)...");
-    let deadline = Instant::now() + Duration::from_secs(timeout_secs);
-    let mut last = 0u64;
-    while Instant::now() < deadline {
-        match rpc_get_committed_block_num(rpc).await {
-            Ok(tip) => {
-                last = tip;
-                if tip >= target {
-                    info!("Checkpoint reached: committed_block_num={tip}");
-                    return Ok(tip);
-                }
-                info!("Waiting checkpoint: tip={tip} target={target}");
-            }
-            Err(e) => warn!("getSyncInfo failed: {e}"),
-        }
-        tokio::time::sleep(Duration::from_secs(2)).await;
-    }
-    Err(format!(
-        "timed out waiting for checkpoint >= {target} (last tip={last})"
-    ))
+/// Crash `ora_submit` mixed into the place_order burst: mark ladder 1000, 999, 998, …
+/// so each price newly exposes [`LIQS_PER_MARK`] positions per market.
+fn unsigned_oracle_mark_tx(
+    lender: &Signer,
+    market: ContractAddress,
+    price_human: u64,
+    expiration: u64,
+) -> Result<Vec<u8>, String> {
+    let action = ActionBuilder::submit_oracle_price(
+        market,
+        SubmitOraclePriceParams {
+            price: price_human.saturating_mul(TOKEN_SCALE),
+        },
+    )
+    .map_err(|e| format!("oracle action: {e}"))?;
+    let tx = TransactionBuilder::new()
+        .sender(lender.address())
+        .expiration(expiration)
+        .add_action(action)
+        .build_and_without_sign()
+        .map_err(|e| format!("oracle build: {e}"))?;
+    bincode::serialize(&tx).map_err(|e| format!("oracle serialize: {e}"))
 }
 
-
-async fn place_order_until_stop(
-    out: MempoolOut,
-    senders: Arc<Vec<BurstSpotSender>>,
-    markets: Arc<Vec<SpotMarketInfo>>,
-    order_amount: u64,
-    stop: Arc<AtomicBool>,
-    counter: Arc<AtomicU64>,
-) -> Result<(), String> {
-    if senders.is_empty() || markets.is_empty() {
-        return Ok(());
-    }
-    info!("Checkpoint place_order → shared mempool channel, senders={}", senders.len());
-    let mut tx_count = 0u64;
-    let mut expiration = u64::MAX;
-    while !stop.load(Ordering::Relaxed) {
-        let sender = &senders[tx_count as usize % senders.len()];
-        let market = &markets[sender.market_index];
-        let action = ActionBuilder::place_order(
-            market.market_address,
-            PlaceOrderParams {
-                side: OrderSide::Sell,
-                amount: order_amount,
-                order_type: OrderParamsType::Limit {
-                    tif: TimeInForce::GTC,
-                },
-                limit_price: market.ask_price,
-                token_address: market.base_token,
-            },
-        )
-        .map_err(|e| format!("checkpoint place_order action: {e}"))?;
-        let tx = TransactionBuilder::new()
-            .sender(sender.address)
-            .expiration(expiration)
-            .add_action(action)
-            .build_and_without_sign()
-            .map_err(|e| format!("checkpoint build tx: {e}"))?;
-        let tx_bytes =
-            bincode::serialize(&tx).map_err(|e| format!("checkpoint serialize: {e}"))?;
-        if let Err(e) = out.send(Bytes::from(tx_bytes)).await {
-            warn!("checkpoint mempool enqueue failed: {e}");
-            break;
-        }
-        tx_count += 1;
-        expiration = expiration.saturating_sub(1);
-        counter.fetch_add(1, Ordering::Relaxed);
-    }
-    info!("Checkpoint place_order stopped after {tx_count}");
-    Ok(())
-}
-
-/// Place-order burst until tip reaches checkpoint target (single shared mempool channel).
-async fn drive_past_checkpoint_with_place_orders(
+/// Drive tip past checkpoint with confirmed RPC txs (create_token — no market token mismatch).
+/// Tip is polled every 2s only.
+async fn drive_past_checkpoint_with_rpc(
+    client: &LightPoolClient,
     rpc: &str,
-    out: MempoolOut,
-    send_rate: Arc<AtomicU64>,
-    senders: Arc<Vec<BurstSpotSender>>,
-    markets: Arc<Vec<SpotMarketInfo>>,
+    driver: &Signer,
     target: u64,
     timeout_secs: u64,
-    order_amount: u64,
 ) -> Result<u64, String> {
+    const TIP_POLL_EVERY: Duration = PROGRESS_LOG_EVERY;
+
     let tip_now = rpc_get_committed_block_num(rpc).await.unwrap_or(0);
     if tip_now >= target {
-        info!("Tip already past checkpoint ({tip_now} >= {target}); skip checkpoint place-order");
+        info!("Tip already past checkpoint ({tip_now} >= {target}); skip checkpoint drive");
         return Ok(tip_now);
     }
-    if senders.is_empty() || markets.is_empty() {
-        return wait_for_checkpoint(rpc, target, timeout_secs).await;
-    }
 
-    send_rate.store(CHECKPOINT_BURST_RATE.max(1), Ordering::Relaxed);
     info!(
-        "Driving tip to checkpoint with place_order: tip={tip_now} target={target}          rate={}/s senders={}",
-        CHECKPOINT_BURST_RATE,
-        senders.len()
+        "Driving tip to checkpoint via RPC create_token: tip={tip_now} target={target} (poll tip every {TIP_POLL_EVERY:?})"
     );
-
-    let stop = Arc::new(AtomicBool::new(false));
-    let counter = Arc::new(AtomicU64::new(0));
-    let handle = tokio::spawn(place_order_until_stop(
-        out,
-        Arc::clone(&senders),
-        Arc::clone(&markets),
-        order_amount,
-        Arc::clone(&stop),
-        Arc::clone(&counter),
-    ));
-
-    let tip = match wait_for_checkpoint(rpc, target, timeout_secs).await {
-        Ok(tip) => tip,
-        Err(e) => {
-            stop.store(true, Ordering::Relaxed);
-            let _ = handle.await;
-            return Err(e);
+    let deadline = Instant::now() + Duration::from_secs(timeout_secs.max(1));
+    let mut tip = tip_now;
+    let mut sent = 0u64;
+    let mut last_poll = Instant::now();
+    while tip < target {
+        if Instant::now() >= deadline {
+            tip = rpc_get_committed_block_num(rpc).await.unwrap_or(tip);
+            if tip >= target {
+                break;
+            }
+            return Err(format!(
+                "timed out waiting for checkpoint >= {target} (last tip={tip}, sent={sent})"
+            ));
         }
-    };
-    stop.store(true, Ordering::Relaxed);
-    let _ = handle.await;
-    info!(
-        "Checkpoint place-order drive done: tip={tip} sent≈{}",
-        counter.load(Ordering::Relaxed)
-    );
+        let name = format!("Ckpt{}", tip.saturating_add(sent));
+        match create_token(client, driver, &name, "CK", 1).await {
+            Ok(_) => sent += 1,
+            Err(e) => {
+                warn!("checkpoint RPC create_token failed: {e}");
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        }
+        if last_poll.elapsed() >= TIP_POLL_EVERY {
+            tip = rpc_get_committed_block_num(rpc).await.unwrap_or(tip);
+            info!("Waiting checkpoint: tip={tip} target={target} sent={sent}");
+            last_poll = Instant::now();
+        }
+    }
+    tip = rpc_get_committed_block_num(rpc).await.unwrap_or(tip);
+    info!("Checkpoint RPC drive done: tip={tip} sent={sent}");
     Ok(tip)
 }
 
@@ -981,7 +1105,7 @@ fn build_burst_senders(senders: usize, num_markets: usize) -> Vec<BurstSpotSende
         .collect()
 }
 
-/// Mempool-burst margin pools: RPC probe pool0+supply, spray the rest, predict addresses.
+/// Mempool-burst margin pools: RPC probe pool0 + supply; burst create/supply with RPC drain.
 async fn setup_pools_mempool_burst(
     client: &LightPoolClient,
     out: &MempoolOut,
@@ -989,6 +1113,7 @@ async fn setup_pools_mempool_burst(
     usdt: ContractAddress,
     num_pools: usize,
     per_pool_supply: u64,
+    probe_seq: &mut u64,
 ) -> Result<Vec<ContractAddress>, String> {
     let num_pools = num_pools.max(1);
     info!(
@@ -1030,42 +1155,64 @@ async fn setup_pools_mempool_burst(
 
     let remaining = num_pools.saturating_sub(1);
     let mut expiration = u64::MAX;
-    let setup_sent = build_and_spray(
+    let create_sent = build_and_spray(
         out,
-        "pool_setup",
-        remaining * 2,
+        "create_pool",
+        remaining,
         &mut expiration,
-        |flat, exp| {
-            let i = 1 + flat / 2;
-            let kind = flat % 2;
-            match kind {
-                0 => {
-                    let action = ActionBuilder::create_margin_pool(CreatePoolParams {
-                        token: usdt,
-                        max_ltv_bps: 8_000,
-                        maint_bps: 8_500,
-                        liq_bonus_bps: 500,
-                    })
-                    .map_err(|e| e.to_string())?;
-                    sign_actions_tx(lender, lender.address(), None, vec![action], exp)
-                }
-                _ => {
-                    let pool = pool_contract(pool_start + i as u64)
-                        .unwrap_or_else(|_| unreachable!("pool index in range"));
-                    let action = ActionBuilder::supply_margin_pool(
-                        pool,
-                        SupplyParams {
-                            amount: per_pool_supply,
-                        },
-                    )
-                    .map_err(|e| e.to_string())?;
-                    sign_actions_tx(lender, lender.address(), None, vec![action], exp)
-                }
-            }
+        |j, exp| {
+            let action = ActionBuilder::create_margin_pool(CreatePoolParams {
+                token: usdt,
+                max_ltv_bps: 8_000,
+                maint_bps: 8_500,
+                liq_bonus_bps: 500,
+            })
+            .map_err(|e| e.to_string())?;
+            sign_actions_tx(lender, lender.address(), None, vec![action], exp)
         },
     )
     .await?;
-    info!("pool_setup burst sent {setup_sent}");
+    info!("create_pool burst sent {create_sent}");
+    wait_phase_commit_via_rpc(
+        client,
+        out,
+        lender,
+        "create_pool",
+        probe_seq,
+        create_sent as usize,
+    )
+    .await?;
+
+    let supply_sent = build_and_spray(
+        out,
+        "supply_pool",
+        remaining,
+        &mut expiration,
+        |j, exp| {
+            let i = j + 1;
+            let pool = pool_contract(pool_start + i as u64)
+                .unwrap_or_else(|_| unreachable!("pool index in range"));
+            let action = ActionBuilder::supply_margin_pool(
+                pool,
+                SupplyParams {
+                    amount: per_pool_supply,
+                },
+            )
+            .map_err(|e| e.to_string())?;
+            sign_actions_tx(lender, lender.address(), None, vec![action], exp)
+        },
+    )
+    .await?;
+    info!("supply_pool burst sent {supply_sent}");
+    wait_phase_commit_via_rpc(
+        client,
+        out,
+        lender,
+        "supply_pool",
+        probe_seq,
+        supply_sent as usize,
+    )
+    .await?;
 
     Ok((0..num_pools)
         .map(|i| {
@@ -1083,6 +1230,7 @@ async fn setup_spot_burst_markets(
     num_markets: usize,
     fund_amount: u64,
     senders_n: usize,
+    probe_seq: &mut u64,
 ) -> Result<Vec<SpotMarketInfo>, String> {
     let num_markets = num_markets.max(1);
     info!(
@@ -1204,6 +1352,15 @@ async fn setup_spot_burst_markets(
     )
     .await?;
     info!("spot_market_setup burst sent {setup_sent}");
+    wait_phase_commit_via_rpc(
+        client,
+        out,
+        creator,
+        "spot_market_setup",
+        probe_seq,
+        setup_sent as usize,
+    )
+    .await?;
 
     Ok((0..num_markets)
         .map(|i| SpotMarketInfo {
@@ -1217,11 +1374,13 @@ async fn setup_spot_burst_markets(
 }
 
 async fn fund_burst_senders(
+    client: &LightPoolClient,
     out: &MempoolOut,
     creator: &Signer,
     senders: &[BurstSpotSender],
     markets: &[SpotMarketInfo],
     fund_amount: u64,
+    probe_seq: &mut u64,
 ) -> Result<(), String> {
     if senders.is_empty() {
         return Ok(());
@@ -1253,6 +1412,15 @@ async fn fund_burst_senders(
     )
     .await?;
     info!("spot_fund burst sent {fund_sent}");
+    wait_phase_commit_via_rpc(
+        client,
+        out,
+        creator,
+        "spot_fund",
+        probe_seq,
+        fund_sent as usize,
+    )
+    .await?;
     Ok(())
 }
 
@@ -1292,6 +1460,7 @@ async fn spot_place_order_burst(
     duration_secs: u64,
     order_amount: u64,
     counter: Arc<AtomicU64>,
+    oracle: Option<OracleBurstMix>,
 ) -> Result<(), String> {
     if senders.is_empty() || markets.is_empty() {
         return Ok(());
@@ -1304,29 +1473,48 @@ async fn spot_place_order_burst(
     let end_time = Instant::now() + Duration::from_secs(duration_secs);
     let mut tx_count = 0u64;
     let mut expiration = u64::MAX;
+    let mut oracle_next: usize = 0;
+    let oracle_n = oracle.as_ref().map(|m| m.markets.len()).unwrap_or(0);
     while Instant::now() < end_time {
-        let sender = &senders[tx_count as usize % senders.len()];
-        let market = &markets[sender.market_index];
-        let action = ActionBuilder::place_order(
-            market.market_address,
-            PlaceOrderParams {
-                side: OrderSide::Sell,
-                amount: order_amount,
-                order_type: OrderParamsType::Limit {
-                    tif: TimeInForce::GTC,
+        let mix_oracle = match oracle.as_ref() {
+            Some(mix) if mix.every_n > 0 && oracle_n > 0 && (tx_count % mix.every_n as u64) == 0 => {
+                true
+            }
+            _ => false,
+        };
+        let tx_bytes = if mix_oracle {
+            let mix = oracle.as_ref().unwrap();
+            let wave = oracle_next / oracle_n;
+            let market = mix.markets[oracle_next % oracle_n];
+            oracle_next += 1;
+            let price_human = CRASH_MARK_START.saturating_sub(wave as u64).max(1);
+            let bytes = unsigned_oracle_mark_tx(mix.lender.as_ref(), market, price_human, expiration)?;
+            mix.sent.fetch_add(1, Ordering::Relaxed);
+            bytes
+        } else {
+            let sender = &senders[tx_count as usize % senders.len()];
+            let market = &markets[sender.market_index];
+            let action = ActionBuilder::place_order(
+                market.market_address,
+                PlaceOrderParams {
+                    side: OrderSide::Sell,
+                    amount: order_amount,
+                    order_type: OrderParamsType::Limit {
+                        tif: TimeInForce::GTC,
+                    },
+                    limit_price: market.ask_price,
+                    token_address: market.base_token,
                 },
-                limit_price: market.ask_price,
-                token_address: market.base_token,
-            },
-        )
-        .map_err(|e| format!("spot place_order action: {e}"))?;
-        let tx = TransactionBuilder::new()
-            .sender(sender.address)
-            .expiration(expiration)
-            .add_action(action)
-            .build_and_without_sign()
-            .map_err(|e| format!("spot build tx: {e}"))?;
-        let tx_bytes = bincode::serialize(&tx).map_err(|e| format!("spot serialize: {e}"))?;
+            )
+            .map_err(|e| format!("spot place_order action: {e}"))?;
+            let tx = TransactionBuilder::new()
+                .sender(sender.address)
+                .expiration(expiration)
+                .add_action(action)
+                .build_and_without_sign()
+                .map_err(|e| format!("spot build tx: {e}"))?;
+            bincode::serialize(&tx).map_err(|e| format!("spot serialize: {e}"))?
+        };
         if let Err(e) = out.send(Bytes::from(tx_bytes)).await {
             warn!("spot mempool enqueue failed: {e}");
             break;
@@ -1335,7 +1523,11 @@ async fn spot_place_order_burst(
         expiration = expiration.saturating_sub(1);
         counter.fetch_add(1, Ordering::Relaxed);
     }
-    info!("Spot burst queued {tx_count} place_orders");
+    let ora = oracle
+        .as_ref()
+        .map(|m| m.sent.load(Ordering::Relaxed))
+        .unwrap_or(0);
+    info!("Spot burst queued {tx_count} txs (ora_submit={ora})");
     Ok(())
 }
 
@@ -1345,6 +1537,7 @@ fn spawn_spot_place_order_burst(
     markets: Arc<Vec<SpotMarketInfo>>,
     duration: u64,
     order_amount: u64,
+    oracle: Option<OracleBurstMix>,
 ) -> (
     tokio::task::JoinHandle<Result<(), String>>,
     tokio::task::JoinHandle<()>,
@@ -1360,19 +1553,21 @@ fn spawn_spot_place_order_burst(
         duration,
         order_amount,
         Arc::clone(&counter),
+        oracle,
     ));
     let monitor_counter = Arc::clone(&counter);
     let monitor = tokio::spawn(async move {
         let mut last_count = 0u64;
         let mut last_time = Instant::now();
         let mut interval = tokio::time::interval(Duration::from_secs(1));
+        interval.tick().await;
         for i in 0..duration {
             interval.tick().await;
             let current = monitor_counter.load(Ordering::Relaxed);
             let elapsed = last_time.elapsed().as_secs_f64().max(1e-9);
             let rate = (current - last_count) as f64 / elapsed;
             info!(
-                "Spot burst progress [{:2}/{}]: {} orders, {:.1} orders/s",
+                "Spot burst progress [{:2}/{}]: {} txs, {:.1} txs/s",
                 i + 1,
                 duration,
                 current,
@@ -1396,13 +1591,13 @@ async fn finalize_spot_burst_metrics(
     start_time: Instant,
     baseline_latency: Duration,
 ) {
-    let mempool_send_time = start_time.elapsed();
     match handle.await {
         Ok(Ok(())) => {}
         Ok(Err(e)) => error!("Spot burst failed: {e}"),
         Err(e) => error!("Spot burst panicked: {e}"),
     }
     monitor.abort();
+    let mempool_send_time = start_time.elapsed();
     let total_orders = counter.load(Ordering::Relaxed);
     let mempool_send_rate = total_orders as f64 / mempool_send_time.as_secs_f64().max(1e-9);
     info!("Spot mempool phase:");
@@ -1594,40 +1789,6 @@ async fn run_liquidation_ws_logger(
     Ok(())
 }
 
-/// Wait until liquidations appear or tip advances enough after ora_submit.
-async fn wait_for_liquidation_window(
-    rpc: &str,
-    tip_before: u64,
-    liq_count: Arc<AtomicU64>,
-    min_tip_delta: u64,
-    timeout_secs: u64,
-) {
-    let deadline = Instant::now() + Duration::from_secs(timeout_secs.max(1));
-    let target_tip = tip_before.saturating_add(min_tip_delta);
-    loop {
-        let events = liq_count.load(Ordering::Relaxed);
-        let tip = rpc_get_committed_block_num(rpc).await.unwrap_or(tip_before);
-        if events > 0 {
-            info!(
-                "Liquidation window: saw {events} events (tip {tip_before}→{tip})"
-            );
-            return;
-        }
-        if tip >= target_tip {
-            info!(
-                "Liquidation window: tip advanced {tip_before}→{tip}, events still 0"
-            );
-            return;
-        }
-        if Instant::now() >= deadline {
-            warn!(
-                "Liquidation window timed out after {timeout_secs}s (tip {tip_before}→{tip}, events=0)"
-            );
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(200)).await;
-    }
-}
 async fn setup_staking_committee(
     client: &LightPoolClient,
     validator: &Signer,
@@ -1714,6 +1875,15 @@ async fn main() -> Result<(), String> {
     if cli.total_positions == 0 {
         return Err("--total-positions must be >= 1".into());
     }
+    if cli.liquidatable_positions == 0 {
+        return Err("--liquidatable-positions must be >= 1".into());
+    }
+    if cli.liquidatable_positions > cli.total_positions {
+        return Err(format!(
+            "--liquidatable-positions ({}) cannot exceed --total-positions ({})",
+            cli.liquidatable_positions, cli.total_positions
+        ));
+    }
     if cli.num_markets == 0 {
         return Err("--num-markets must be >= 1".into());
     }
@@ -1733,8 +1903,11 @@ async fn main() -> Result<(), String> {
         );
     }
     let total_positions = cli.total_positions;
+    let liquidatable_cap = cli.liquidatable_positions.min(total_positions);
     let position_markets = POSITION_MARKETS.max(1).min(total_positions);
-    let positions_per_market = (total_positions + position_markets - 1) / position_markets;
+    let ladder_per_market = liquidatable_cap.div_ceil(position_markets);
+    let ladder_mark_low = mark_human_for_ladder_slot(ladder_per_market.saturating_sub(1));
+    let decoys = total_positions.saturating_sub(liquidatable_cap);
 
     let rpc = format!("http://{}:26300", cli.address);
     let mempool = format!("{}:26000", cli.address);
@@ -1743,9 +1916,11 @@ async fn main() -> Result<(), String> {
     info!("RPC: {}", rpc);
     info!("Mempool: {}", mempool);
     info!(
-        "Positions: {total_positions} on {position_markets} markets (~{positions_per_market}/mkt); \
-         liq ~{}/block via ~{} ora/block",
-        cli.positions, LIQ_MARKETS
+        "Positions: {total_positions} on {position_markets} markets \
+         (ladder={liquidatable_cap} ~{ladder_per_market}/mkt mark {CRASH_MARK_START}→{ladder_mark_low}, \
+         decoys={decoys}); {} liq/mark/mkt; target ~{}/block",
+        LIQS_PER_MARK,
+        cli.positions
     );
     info!(
         "Phase 6 burst: markets={} senders={} rate={}/s duration={}s (1 mempool connection)",
@@ -1768,6 +1943,7 @@ async fn main() -> Result<(), String> {
     let lender = Arc::new(load_default_wallet_signer()?);
     let seller = Arc::new(Signer::new());
     let bidder = Arc::new(Signer::new());
+    let mut drain_probe_seq = 0u64;
     info!("Lender (default wallet): {}", lender.address());
     info!("Seller: {}", seller.address());
     info!("Bidder: {}", bidder.address());
@@ -1789,6 +1965,8 @@ async fn main() -> Result<(), String> {
     let per_pool_supply = pool_supply_total
         .saturating_add(POOLS as u64 - 1)
         / POOLS as u64;
+    let deposit_budget = max_deposit_for_setup(liquidatable_cap, position_markets)
+        .saturating_mul(total_positions as u64);
     let usdt = create_token(
         &client,
         lender.as_ref(),
@@ -1796,7 +1974,7 @@ async fn main() -> Result<(), String> {
         "USDT",
         per_pool_supply
             .saturating_mul(POOLS as u64)
-            .saturating_add(COLLATERAL.saturating_mul(total_positions as u64))
+            .saturating_add(deposit_budget)
             .saturating_add(
                 quote_for_base(TRADE_AMOUNT, TRADE_PRICE).saturating_mul(total_positions as u64)
                     * 2,
@@ -1816,11 +1994,12 @@ async fn main() -> Result<(), String> {
         usdt,
         POOLS,
         per_pool_supply,
+        &mut drain_probe_seq,
     )
     .await?;
 
-    // Fund bidder for liquidation bids (buy base during IOC sell).
-    let bid_quote_each = quote_for_base(TRADE_AMOUNT, TRADE_PRICE).saturating_mul(2);
+    // Fund bidder for liquidation bids (buy base during IOC sell at crash marks).
+    let bid_quote_each = quote_for_base(TRADE_AMOUNT, CRASH_BID_PRICE).saturating_mul(2);
     let bid_fund = bid_quote_each.saturating_mul(total_positions as u64);
     transfer(
         &client,
@@ -1845,15 +2024,18 @@ async fn main() -> Result<(), String> {
             cli.num_markets,
             total_fund,
             cli.senders,
+            &mut drain_probe_seq,
         )
         .await?;
         let senders = build_burst_senders(cli.senders, markets.len());
         fund_burst_senders(
+            &client,
             &mempool_out,
             lender.as_ref(),
             &senders,
             &markets,
             total_fund,
+            &mut drain_probe_seq,
         )
         .await?;
         if let Some(sample) = senders.first() {
@@ -1886,8 +2068,12 @@ async fn main() -> Result<(), String> {
         total_positions,
         BORROWERS,
         position_markets,
+        liquidatable_cap,
+        &mut drain_probe_seq,
     )
     .await?;
+    // Setup txs are already paced through the mempool worker; tip may keep rising
+    // on empty timeout proposals — do not wait for tip to stop.
     let tip_after_setup = rpc_get_committed_block_num(&rpc).await.unwrap_or(0);
     info!(
         "Phase 4 done: {} positions ready (tip={tip_after_setup})",
@@ -1902,17 +2088,14 @@ async fn main() -> Result<(), String> {
         tip_after_setup
     } else {
         info!(
-            "Phase 5: pass first checkpoint (tip={tip_after_setup}→{EPOCH_LENGTH}, rate={CHECKPOINT_BURST_RATE}/s)"
+            "Phase 5: pass first checkpoint via RPC create_token (tip={tip_after_setup}→{EPOCH_LENGTH})"
         );
-        drive_past_checkpoint_with_place_orders(
+        drive_past_checkpoint_with_rpc(
+            &client,
             &rpc,
-            mempool_out.clone(),
-            Arc::clone(&mempool_rate),
-            Arc::clone(&spot_senders),
-            Arc::clone(&spot_markets),
+            lender.as_ref(),
             EPOCH_LENGTH,
             CHECKPOINT_TIMEOUT_SECS,
-            SPOT_ORDER_AMOUNT,
         )
         .await?
     };
@@ -1921,19 +2104,21 @@ async fn main() -> Result<(), String> {
         fixtures.len()
     );
 
-    // --- Phase 6a: ora_submit on a quiet mempool, then 6b: spot load ---
+    // --- Phase 6: spot burst @ rate_per_task, oracle marks mixed in (~100 / 2k txs) ---
     let do_liquidate = !cli.no_liquidate;
-    let oracle_price = if do_liquidate { CRASH_PRICE } else { TRADE_PRICE };
-    let liqs_per_sec = (cli.positions as u64).saturating_mul(BLOCKS_PER_SEC);
     let burst_rate = cli.rate_per_task;
+    let markets_per_block = (cli.positions / LIQS_PER_MARK).max(1);
     if do_liquidate {
         info!(
-            "Phase 6a: ora_submit crash={oracle_price} first (~{} liq/block, ~{}/s), then 6b spot @ {burst_rate}/s",
-            cli.positions, liqs_per_sec
+            "Phase 6: spot @ {burst_rate}/s mixed with mark ladder {}↓ ({} liq/mark/mkt, ~{} ora / {} txs)",
+            CRASH_MARK_START,
+            LIQS_PER_MARK,
+            markets_per_block.min(BURST_BLOCK_TXS),
+            BURST_BLOCK_TXS
         );
     } else {
         info!(
-            "Phase 6a: ora_submit healthy={oracle_price} first, then 6b spot @ {burst_rate}/s (no liquidations)"
+            "Phase 6: spot @ {burst_rate}/s only (--no-liquidate skips ora mix)"
         );
     }
 
@@ -1963,61 +2148,45 @@ async fn main() -> Result<(), String> {
         Arc::new(uniq)
     };
 
-    // Quiet window: only ora_submit on the shared connection (no spot competition).
-    mempool_rate.store(SETUP_BURST_RATE.max(1), Ordering::Relaxed);
-    let tip_before_oracle = rpc_get_committed_block_num(&rpc).await.unwrap_or(tip);
-    let oracle_counter = Arc::new(AtomicU64::new(0));
-    info!(
-        "Phase 6a: queueing ora_submit for {} markets @ price={} (tip={tip_before_oracle})",
-        markets.len(),
-        oracle_price
-    );
-    match mempool_oracle_price_burst(
-        mempool_out.clone(),
-        Arc::clone(&lender),
-        Arc::clone(&markets),
-        LIQ_MARKETS,
-        BLOCKS_PER_SEC,
-        cli.duration.max(1),
-        oracle_price,
-        Arc::clone(&oracle_counter),
-    )
-    .await
-    {
-        Ok(()) => {}
-        Err(e) => warn!("Oracle mempool burst failed: {e}"),
-    }
-    info!(
-        "Phase 6a: queued {} ora_submit; waiting for liquidation window...",
-        oracle_counter.load(Ordering::Relaxed)
-    );
-    wait_for_liquidation_window(
-        &rpc,
-        tip_before_oracle,
-        Arc::clone(&liq_ws_count),
-        40,
-        60,
-    )
-    .await;
-    info!(
-        "Phase 6a done: liquidations so far = {}",
-        liq_ws_count.load(Ordering::Relaxed)
-    );
-
-    // Spot load after oracle / CH had a chance to land.
     mempool_rate.store(cli.rate_per_task.max(1), Ordering::Relaxed);
+    let oracle_per_block = markets_per_block.min(markets.len().max(1)).min(BURST_BLOCK_TXS);
+    let oracle_every_n = if do_liquidate && !markets.is_empty() {
+        (BURST_BLOCK_TXS / oracle_per_block).max(1)
+    } else {
+        0
+    };
     info!(
-        "Phase 6b: spot place_order load: senders={} markets={} @ {}/s",
+        "Phase 6 spot: senders={} markets={} @ {}/s; ora markets={} every {} txs",
         spot_senders.len(),
         spot_markets.len(),
-        cli.rate_per_task
+        cli.rate_per_task,
+        markets.len(),
+        if oracle_every_n == 0 {
+            0
+        } else {
+            oracle_every_n
+        }
     );
+
+    let oracle_counter = Arc::new(AtomicU64::new(0));
+    let oracle_mix = if oracle_every_n > 0 {
+        Some(OracleBurstMix {
+            lender: Arc::clone(&lender),
+            markets: Arc::clone(&markets),
+            every_n: oracle_every_n,
+            sent: Arc::clone(&oracle_counter),
+        })
+    } else {
+        None
+    };
+
     let spot_burst_join = spawn_spot_place_order_burst(
         mempool_out.clone(),
         Arc::clone(&spot_senders),
         Arc::clone(&spot_markets),
         cli.duration,
         SPOT_ORDER_AMOUNT,
+        oracle_mix,
     );
     let (handle, monitor, counter, start_time) = spot_burst_join;
     finalize_spot_burst_metrics(
@@ -2032,6 +2201,12 @@ async fn main() -> Result<(), String> {
         baseline_latency,
     )
     .await;
+
+    info!(
+        "Phase 6 done: ora_submit queued≈{}, liquidations logged={}",
+        oracle_counter.load(Ordering::Relaxed),
+        liq_ws_count.load(Ordering::Relaxed)
+    );
 
     // Stop logger: abort unblocks receiver.recv(); remaining events already flushed on each write.
     liq_ws_stop.store(true, Ordering::Relaxed);
