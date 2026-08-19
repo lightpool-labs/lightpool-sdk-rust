@@ -44,6 +44,7 @@ use lightpool_sdk::{
     TransactionBuilder, TransferParams, MARGIN_MODE_ISOLATED, TOKEN_SCALE,
 };
 use lightpool_sdk::lightpool_types::{
+    call::{GetBalance, GetBalanceParams},
     margin_account_contract, market_contract, pool_contract,
 };
 use log::{error, info, warn};
@@ -92,6 +93,8 @@ const DRAIN_RPC_TIMEOUT_SECS: u64 = 3600;
 /// Phase 6 market-buy size (margin min_order_size; does not materially drain crash bids).
 const SPOT_BURST_ORDER_AMOUNT: u64 = MIN_ORDER_SIZE;
 const SPOT_BURST_SLIPPAGE: u64 = 100;
+/// Extra headroom on Phase 6 burst ask + buyer quote funding (bps, 10000 = 100%).
+const BURST_ASK_HEADROOM_BPS: u64 = 10_000;
 /// One market order per this many burst place_orders (~1% fill, 99% resting limits).
 const MARKET_ORDER_EVERY: u64 = 100;
 const CHECKPOINT_TIMEOUT_SECS: u64 = 3600;
@@ -247,6 +250,10 @@ struct Cli {
     #[clap(long, default_value = "1024")]
     senders: usize,
 
+    /// How many burst senders (first N) to balance-check after Phase 6.
+    #[clap(long, default_value = "10")]
+    validate_senders: usize,
+
     /// Mempool send rate for the single shared connection (tx/s).
     #[clap(short, long, default_value = "200000")]
     rate_per_task: u64,
@@ -351,13 +358,195 @@ fn burst_order_params(market: &BurstMarketInfo, order_amount: u64, seq: u64) -> 
     }
 }
 
-fn burst_fund_quote_per_sender(rate_per_task: u64, duration: u64) -> u64 {
-    let txs = rate_per_task.saturating_mul(duration.max(1));
-    let market_txs = txs / MARKET_ORDER_EVERY + 1;
-    let quote_each = quote_for_base(SPOT_BURST_ORDER_AMOUNT, TRADE_PRICE).saturating_mul(2);
-    quote_each
-        .saturating_mul(market_txs)
-        .saturating_add(quote_each)
+fn burst_place_order_route(
+    place_order_seq: u64,
+    num_senders: usize,
+    num_markets: usize,
+) -> (usize, usize) {
+    let num_senders = num_senders.max(1);
+    let num_markets = num_markets.max(1);
+    if is_market_burst_order(place_order_seq) {
+        let slot = (place_order_seq / MARKET_ORDER_EVERY) as usize;
+        (slot % num_senders, slot % num_markets)
+    } else {
+        let sender = place_order_seq as usize % num_senders;
+        (sender, sender % num_markets)
+    }
+}
+
+fn burst_orders_per_sender(
+    total_tx: u64,
+    num_senders: usize,
+    oracle_every_n: usize,
+) -> Vec<(u64, u64)> {
+    let num_senders = num_senders.max(1);
+    let mut per_sender = vec![(0u64, 0u64); num_senders];
+    let mut place_order_seq = 0u64;
+    for tx_count in 0..total_tx {
+        if oracle_every_n > 0 && tx_count % oracle_every_n as u64 == 0 {
+            continue;
+        }
+        let (sender, _) = burst_place_order_route(place_order_seq, num_senders, num_senders);
+        if is_market_burst_order(place_order_seq) {
+            per_sender[sender].0 += 1;
+        } else {
+            per_sender[sender].1 += 1;
+        }
+        place_order_seq += 1;
+    }
+    per_sender
+}
+
+fn with_burst_headroom(amount: u64) -> u64 {
+    amount
+        .saturating_mul(10_000 + BURST_ASK_HEADROOM_BPS)
+        .saturating_div(10_000)
+}
+
+/// GTC ask base per market for Phase 6 market buys (margin setup IOC buys drain the first ask).
+fn burst_ask_liquidity_base_per_market(
+    rate_per_task: u64,
+    duration: u64,
+    num_markets: usize,
+    oracle_every_n: usize,
+) -> u64 {
+    let total_tx = rate_per_task.saturating_mul(duration.max(1));
+    let num_markets = num_markets.max(1);
+    let mut per_market = vec![0u64; num_markets];
+    let mut place_order_seq = 0u64;
+    for tx_count in 0..total_tx {
+        if oracle_every_n > 0 && tx_count % oracle_every_n as u64 == 0 {
+            continue;
+        }
+        if is_market_burst_order(place_order_seq) {
+            let slot = (place_order_seq / MARKET_ORDER_EVERY) as usize;
+            per_market[slot % num_markets] += 1;
+        }
+        place_order_seq += 1;
+    }
+    let max_buys = per_market.into_iter().max().unwrap_or(0);
+    with_burst_headroom(
+        max_buys
+            .saturating_mul(SPOT_BURST_ORDER_AMOUNT)
+            .saturating_add(SPOT_BURST_ORDER_AMOUNT),
+    )
+}
+
+async fn query_token_balance(
+    client: &LightPoolClient,
+    token: ContractAddress,
+    account: Address,
+) -> Result<GetBalance, String> {
+    let action = ActionBuilder::get_balance(token, account, GetBalanceParams {})
+        .map_err(|e| format!("get_balance action: {e}"))?;
+    let tx = TransactionBuilder::new()
+        .account(account)
+        .expiration(u64::MAX)
+        .add_action(action)
+        .build_and_without_sign()
+        .map_err(|e| format!("get_balance tx: {e}"))?;
+    let bytes = client
+        .call(tx)
+        .await
+        .map_err(|e| format!("get_balance call: {e}"))?;
+    bincode::deserialize(&bytes).map_err(|e| format!("decode GetBalance: {e}"))
+}
+
+async fn validate_burst_market_fills(
+    client: &LightPoolClient,
+    senders: &[BurstSpotSender],
+    validate_count: usize,
+    quote_token: ContractAddress,
+    base_token: ContractAddress,
+    total_tx: u64,
+    oracle_every_n: usize,
+    fund_quote: u64,
+    fund_base: u64,
+    order_amount: u64,
+    final_rpc_market_buy_on_first_sender: bool,
+) -> Result<(), String> {
+    if senders.is_empty() || validate_count == 0 {
+        return Ok(());
+    }
+    let validate_count = validate_count.min(senders.len());
+    let counts = burst_orders_per_sender(total_tx, senders.len(), oracle_every_n);
+    let quote_per_fill = quote_for_base(order_amount, TRADE_PRICE);
+    let mut failures = 0usize;
+
+    info!(
+        "Phase 6 validate: market-order fills for first {validate_count}/{} senders (total_tx={total_tx})...",
+        senders.len()
+    );
+    for (idx, sender) in senders.iter().enumerate().take(validate_count) {
+        let mut market_buys = counts[idx].0;
+        if final_rpc_market_buy_on_first_sender && idx == 0 {
+            market_buys += 1;
+        }
+        let limit_sells = counts[idx].1;
+
+        let expected_base_total = fund_base.saturating_add(market_buys.saturating_mul(order_amount));
+        let expected_base_locked = limit_sells.saturating_mul(order_amount);
+        let expected_base_available = fund_base
+            .saturating_add(market_buys.saturating_mul(order_amount))
+            .saturating_sub(limit_sells.saturating_mul(order_amount));
+        let expected_quote_total = fund_quote.saturating_sub(market_buys.saturating_mul(quote_per_fill));
+
+        let base = query_token_balance(client, base_token, sender.address).await?;
+        let quote = query_token_balance(client, quote_token, sender.address).await?;
+
+        let base_ok = base.total == expected_base_total
+            && base.locked == expected_base_locked
+            && base.available == expected_base_available;
+        let quote_ok = quote.total == expected_quote_total;
+
+        if base_ok && quote_ok {
+            info!(
+                "Sender {idx} ({sender}): PASS market_buys={market_buys} limit_sells={limit_sells}",
+                sender = sender.address,
+            );
+        } else {
+            failures += 1;
+            error!(
+                "Sender {idx} ({sender}): FAIL market_buys={market_buys} limit_sells={limit_sells}",
+                sender = sender.address,
+            );
+            error!(
+                "  base: got total={} locked={} avail={}; want total={expected_base_total} locked={expected_base_locked} avail={expected_base_available}",
+                base.total, base.locked, base.available,
+            );
+            error!(
+                "  quote: got total={}; want total={expected_quote_total}",
+                quote.total,
+            );
+        }
+    }
+
+    if failures > 0 {
+        return Err(format!(
+            "{failures}/{validate_count} senders failed market-fill balance check",
+        ));
+    }
+    info!(
+        "Phase 6 validate: first {validate_count} senders passed market-fill balance check",
+    );
+    Ok(())
+}
+
+fn burst_fund_quote_per_sender(
+    rate_per_task: u64,
+    duration: u64,
+    num_senders: usize,
+    oracle_every_n: usize,
+) -> u64 {
+    let total_tx = rate_per_task.saturating_mul(duration.max(1));
+    let max_market_buys = burst_orders_per_sender(total_tx, num_senders, oracle_every_n)
+        .into_iter()
+        .map(|(market_buys, _)| market_buys)
+        .max()
+        .unwrap_or(0)
+        .saturating_add(1);
+    let quote_per_fill = quote_for_base(SPOT_BURST_ORDER_AMOUNT, TRADE_PRICE);
+    with_burst_headroom(max_market_buys.saturating_mul(quote_per_fill))
 }
 
 fn burst_fund_base_per_sender(rate_per_task: u64, duration: u64) -> u64 {
@@ -667,6 +856,7 @@ async fn setup_positions_mempool_burst(
     num_borrowers: usize,
     num_markets: usize,
     liquidatable_cap: usize,
+    burst_ask_base_per_market: u64,
     probe_seq: &mut u64,
 ) -> Result<Vec<PositionFixture>, String> {
     if pools.is_empty() {
@@ -778,7 +968,8 @@ async fn setup_positions_mempool_burst(
     let book_liquidity_base = TRADE_AMOUNT.saturating_mul(positions_per_market as u64);
     info!(
         "Spot book liquidity: one GTC sell + one GTC bid per market ({num_markets} each), \
-         {book_liquidity_base} base/mkt (~{positions_per_market} fills)"
+         {book_liquidity_base} base/mkt for margin IOC (~{positions_per_market} fills); \
+         burst ask {burst_ask_base_per_market} base/mkt for Phase 6 market buys"
     );
 
     // Fund borrowers once each (enough collateral for their share of positions).
@@ -975,6 +1166,42 @@ async fn setup_positions_mempool_burst(
         buy_sent as usize,
     )
     .await?;
+
+    // Phase 6 market buys hit TRADE_PRICE; margin IOC above drains the first GTC sell per market.
+    if burst_ask_base_per_market > 0 {
+        let burst_ask_sent = build_and_spray(
+            out,
+            "burst_ask_sell",
+            num_markets,
+            &mut expiration,
+            |m, exp| {
+                let sell = ActionBuilder::place_order(
+                    markets[m],
+                    PlaceOrderParams {
+                        side: OrderSide::Sell,
+                        amount: burst_ask_base_per_market,
+                        order_type: OrderParamsType::Limit {
+                            tif: TimeInForce::GTC,
+                        },
+                        limit_price: TRADE_PRICE,
+                        token_address: btc,
+                    },
+                )
+                .map_err(|e| e.to_string())?;
+                unsigned_actions_tx(seller.address(), None, vec![sell], exp)
+            },
+        )
+        .await?;
+        wait_phase_commit_via_rpc(
+            client,
+            out,
+            lender.as_ref(),
+            "burst_ask_sell",
+            probe_seq,
+            burst_ask_sent as usize,
+        )
+        .await?;
+    }
 
     // One resting bid per market; clearinghouse IOC sells match during liquidation.
     let bid_sent = build_and_spray(
@@ -1415,6 +1642,7 @@ async fn spot_place_order_burst(
     );
     let end_time = Instant::now() + Duration::from_secs(duration_secs);
     let mut tx_count = 0u64;
+    let mut place_order_seq = 0u64;
     let mut expiration = u64::MAX;
     let mut oracle_next: usize = 0;
     let oracle_n = oracle.as_ref().map(|m| m.markets.len()).unwrap_or(0);
@@ -1435,11 +1663,13 @@ async fn spot_place_order_burst(
             mix.sent.fetch_add(1, Ordering::Relaxed);
             bytes
         } else {
-            let sender = &senders[tx_count as usize % senders.len()];
-            let market = &markets[sender.market_index];
+            let (sender_idx, market_idx) =
+                burst_place_order_route(place_order_seq, senders.len(), markets.len());
+            let sender = &senders[sender_idx];
+            let market = &markets[market_idx];
             let action = ActionBuilder::place_order(
                 market.market_address,
-                burst_order_params(market, order_amount, tx_count),
+                burst_order_params(market, order_amount, place_order_seq),
             )
             .map_err(|e| format!("place_order action: {e}"))?;
             let tx = TransactionBuilder::new()
@@ -1448,6 +1678,7 @@ async fn spot_place_order_burst(
                 .add_action(action)
                 .build_and_without_sign()
                 .map_err(|e| format!("spot build tx: {e}"))?;
+            place_order_seq += 1;
             bincode::serialize(&tx).map_err(|e| format!("spot serialize: {e}"))?
         };
         if let Err(e) = out.send(Bytes::from(tx_bytes)).await {
@@ -1525,7 +1756,13 @@ async fn finalize_spot_burst_metrics(
     counter: Arc<AtomicU64>,
     start_time: Instant,
     baseline_latency: Duration,
-) {
+    quote_token: ContractAddress,
+    base_token: ContractAddress,
+    fund_quote: u64,
+    fund_base: u64,
+    oracle_every_n: usize,
+    validate_senders: usize,
+) -> Result<(), String> {
     match handle.await {
         Ok(Ok(())) => {}
         Ok(Err(e)) => error!("Spot burst failed: {e}"),
@@ -1604,6 +1841,28 @@ async fn finalize_spot_burst_metrics(
         "Baseline latency: {:.3}s",
         baseline_latency.as_secs_f64()
     );
+
+    info!(
+        "Waiting 5s before balance validation for first {} of {} senders...",
+        validate_senders.min(senders.len()),
+        senders.len()
+    );
+    tokio::time::sleep(Duration::from_secs(5)).await;
+
+    validate_burst_market_fills(
+        client,
+        senders.as_ref(),
+        validate_senders,
+        quote_token,
+        base_token,
+        total_orders,
+        oracle_every_n,
+        fund_quote,
+        fund_base,
+        order_amount,
+        final_ok,
+    )
+    .await
 }
 
 async fn setup_staking_committee(
@@ -1722,6 +1981,12 @@ async fn main() -> Result<(), String> {
     if cli.senders == 0 {
         return Err("--senders must be >= 1".into());
     }
+    if cli.validate_senders > cli.senders {
+        return Err(format!(
+            "--validate-senders ({}) cannot exceed --senders ({})",
+            cli.validate_senders, cli.senders
+        ));
+    }
     if cli.rate_per_task == 0 {
         return Err("--rate-per-task must be >= 1".into());
     }
@@ -1796,10 +2061,37 @@ async fn main() -> Result<(), String> {
         / POOLS as u64;
     let deposit_budget = max_deposit_for_setup(liquidatable_cap, position_markets)
         .saturating_mul(total_positions as u64);
-    let burst_quote_fund = burst_fund_quote_per_sender(cli.rate_per_task, cli.duration);
+    let markets_per_block = (cli.positions / LIQS_PER_MARK).max(1);
+    let oracle_per_block = markets_per_block
+        .min(position_markets)
+        .min(BURST_BLOCK_TXS);
+    let oracle_every_n = if !cli.no_liquidate && position_markets > 0 {
+        (BURST_BLOCK_TXS / oracle_per_block.max(1)).max(1)
+    } else {
+        0
+    };
+    let burst_quote_fund = burst_fund_quote_per_sender(
+        cli.rate_per_task,
+        cli.duration,
+        cli.senders,
+        oracle_every_n,
+    );
     let burst_base_fund = burst_fund_base_per_sender(cli.rate_per_task, cli.duration);
     let burst_quote_total = burst_quote_fund.saturating_mul(cli.senders as u64);
     let burst_base_total = burst_base_fund.saturating_mul(cli.senders as u64);
+    let burst_ask_base_per_market = burst_ask_liquidity_base_per_market(
+        cli.rate_per_task,
+        cli.duration,
+        position_markets,
+        oracle_every_n,
+    );
+    let burst_ask_btc_total =
+        burst_ask_base_per_market.saturating_mul(position_markets as u64);
+    info!(
+        "Phase 6 funding: burst ask {burst_ask_base_per_market} base/mkt ({}% headroom), \
+         quote/sender={burst_quote_fund} for market buys",
+        BURST_ASK_HEADROOM_BPS / 100
+    );
     let usdt = create_token(
         &client,
         lender.as_ref(),
@@ -1818,7 +2110,8 @@ async fn main() -> Result<(), String> {
     let btc_supply = TRADE_AMOUNT
         .saturating_mul(total_positions as u64)
         .saturating_mul(2)
-        .saturating_add(burst_base_total);
+        .saturating_add(burst_base_total)
+        .saturating_add(burst_ask_btc_total);
     let btc = create_token(&client, seller.as_ref(), "Bitcoin", "BTC", btc_supply).await?;
 
     mempool_rate.store(SETUP_BURST_RATE, Ordering::Relaxed);
@@ -1860,6 +2153,7 @@ async fn main() -> Result<(), String> {
         BORROWERS,
         position_markets,
         liquidatable_cap,
+        burst_ask_base_per_market,
         &mut drain_probe_seq,
     )
     .await?;
@@ -2015,8 +2309,14 @@ async fn main() -> Result<(), String> {
         counter,
         start_time,
         baseline_latency,
+        usdt,
+        btc,
+        burst_quote_fund,
+        burst_base_fund,
+        oracle_every_n,
+        cli.validate_senders,
     )
-    .await;
+    .await?;
 
     drop(mempool_out);
     let _ = mempool_worker.await;
