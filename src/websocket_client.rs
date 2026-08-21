@@ -178,7 +178,6 @@ impl WebSocketClient {
                                         if let Ok(msg) = serde_json::from_value::<Message>(data.clone())
                                     {
                                         if sender.send(msg).is_err() {
-                                            // Receiver dropped (subscriber stopped); end quietly.
                                             break;
                                         }
                                         continue;

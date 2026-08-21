@@ -9,7 +9,7 @@ use crate::lightpool_types::contract::ContractAddress;
 use crate::lightpool_types::transaction::SignedTransaction;
 
 #[cfg(feature = "serde")]
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "serialization")]
 use bincode;
@@ -38,35 +38,30 @@ pub enum EventType {
     Custom(String),
 }
 
-/// Transaction event, representing events emitted during transaction execution
+/// Transaction event
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TransactionEvent {
-    /// Event type
     pub event_type: EventType,
-    /// Event sender
-    pub sender: Option<Address>,
-    /// Event contract
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, with = "crate::lightpool_types::serde_hex::option_contract")
+    )]
     pub contract: Option<ContractAddress>,
-    /// Event timestamp
-    pub block_num: u64,
-    /// Event data
     pub data: EventData,
 }
 
-/// Event data, can be different types
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum EventData {
-    /// Empty event data
     Empty,
-    /// String data
     String(String),
-    /// Byte data
+    #[cfg_attr(
+        feature = "serde",
+        serde(with = "crate::lightpool_types::serde_hex::bytes")
+    )]
     Bytes(Vec<u8>),
-    /// Integer data
     Int(i64),
-    /// Key-value pair data
     Map(HashMap<String, String>),
 }
 
@@ -74,36 +69,28 @@ impl TransactionEvent {
     /// Create a new event
     pub fn new(
         event_type: EventType,
-        sender: Option<Address>,
         contract: Option<ContractAddress>,
-        block_num: u64,
         data: EventData,
     ) -> Self {
         Self {
             event_type,
-            sender,
             contract,
-            block_num,
             data,
         }
     }
 
     /// Create a system event
-    pub fn system(message: String, block_num: u64) -> Self {
+    pub fn system(message: String) -> Self {
         Self {
             event_type: EventType::System,
-            sender: None,
             contract: None,
-            block_num,
             data: EventData::String(message),
         }
     }
 
     /// Generate event digest
     pub fn digest(&self) -> Digest {
-        let event_data = format!("{}:{}:{:?}:{:?}:{}", 
-            self.event_type, self.block_num, 
-            self.sender, self.contract, self.data);
+        let event_data = format!("{}:{:?}:{}", self.event_type, self.contract, self.data);
         Digest::new_from_bytes(event_data.as_bytes())
     }
 }
@@ -129,7 +116,9 @@ impl fmt::Display for EventData {
             EventData::Map(map) => {
                 write!(f, "Map(")?;
                 for (i, (key, value)) in map.iter().enumerate() {
-                    if i > 0 { write!(f, ", ")?; }
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
                     write!(f, "{}={}", key, value)?;
                 }
                 write!(f, ")")
@@ -140,8 +129,11 @@ impl fmt::Display for EventData {
 
 impl fmt::Display for TransactionEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Event(type: {}, ts: {}, sender: {:?}, contract: {:?}, data: {})", 
-               self.event_type, self.block_num, self.sender, self.contract, self.data)
+        write!(
+            f,
+            "Event(type: {}, contract: {:?}, data: {})",
+            self.event_type, self.contract, self.data
+        )
     }
 }
 
@@ -149,18 +141,15 @@ impl fmt::Display for TransactionEvent {
 #[cfg(feature = "serialization")]
 pub fn calculate_events_digest(events: &[TransactionEvent]) -> Digest {
     if events.is_empty() {
-        // If no events, return digest of empty data
         return Digest::new_from_bytes(&[]);
     }
-    
-    // Use bincode to serialize all events
+
     let mut all_data = Vec::new();
     for event in events {
         let event_bytes = bincode::serialize(event).expect("Failed to serialize event");
         all_data.extend_from_slice(&event_bytes);
     }
-    
-    // Use new_from_bytes method
+
     Digest::new_from_bytes(&all_data)
 }
 
@@ -168,72 +157,50 @@ pub fn calculate_events_digest(events: &[TransactionEvent]) -> Digest {
 #[cfg(not(feature = "serialization"))]
 pub fn calculate_events_digest(events: &[TransactionEvent]) -> Digest {
     if events.is_empty() {
-        // If no events, return digest of empty data
         return Digest::new_from_bytes(&[]);
     }
-    
-    // Simple hash based on event count and types when serialization is not available
+
     let mut data = Vec::new();
     data.extend_from_slice(&events.len().to_le_bytes());
     for event in events {
-        data.extend_from_slice(&event.block_num.to_le_bytes());
+        data.extend_from_slice(format!("{:?}", event.event_type).as_bytes());
     }
-    
+
     Digest::new_from_bytes(&data)
 }
 
-/// TransactionReceipt contains the basic receipt information for a transaction
+/// Transaction receipt
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TransactionReceipt {
-    /// Transaction digest
-    pub transaction_digest: Digest,
-    /// Transaction status code, indicating whether execution was successful
     pub status: ExecutionStatus,
-    /// Transaction events
     pub events: Vec<TransactionEvent>,
-    /// Block number where transaction was included
-    pub block_num: u64,
 }
 
 impl TransactionReceipt {
     /// Create a new transaction receipt object
-    pub fn new(
-        transaction_digest: Digest,
-        status: ExecutionStatus,
-        events: Vec<TransactionEvent>,
-        block_num: u64,
-    ) -> Self {
-        Self {
-            transaction_digest,
-            status,
-            events,
-            block_num,
-        }
+    pub fn new(status: ExecutionStatus, events: Vec<TransactionEvent>) -> Self {
+        Self { status, events }
     }
-    
+
     /// Check if transaction executed successfully
     pub fn is_success(&self) -> bool {
         matches!(self.status, ExecutionStatus::Success)
     }
 
     /// Create an empty successful transaction receipt
-    pub fn empty_success(transaction_digest: Digest, block_num: u64) -> Self {
+    pub fn empty_success() -> Self {
         Self {
-            transaction_digest,
             status: ExecutionStatus::Success,
             events: Vec::new(),
-            block_num,
         }
     }
 
     /// Create a failed transaction receipt
-    pub fn failure(transaction_digest: Digest, error_msg: String, block_num: u64) -> Self {
+    pub fn failure(error_msg: String) -> Self {
         Self {
-            transaction_digest,
             status: ExecutionStatus::Failure(error_msg),
             events: Vec::new(),
-            block_num,
         }
     }
 
@@ -270,53 +237,56 @@ impl TransactionEffect {
             status,
         }
     }
-} 
+}
 
-/// TransactionResult represents the execution result of a transaction
-/// without the dirty data cache, suitable for external consumption
+/// Receipt view of one executed transaction. Does not carry the signed transaction body.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct TransactionResult {
-    /// The signed transaction
-    pub transaction: SignedTransaction,
-    /// The transaction receipt
+    #[cfg_attr(
+        feature = "serde",
+        serde(with = "crate::lightpool_types::serde_hex::digest")
+    )]
+    pub signed_digest: Digest,
+    #[cfg_attr(
+        feature = "serde",
+        serde(with = "crate::lightpool_types::serde_hex::address")
+    )]
+    pub sender: Address,
     pub receipt: TransactionReceipt,
 }
 
 impl TransactionResult {
-    /// Create a new TransactionResult
-    pub fn new(
-        transaction: SignedTransaction,
-        receipt: TransactionReceipt,
-    ) -> Self {
+    pub fn new(signed_digest: Digest, sender: Address, receipt: TransactionReceipt) -> Self {
         Self {
-            transaction,
+            signed_digest,
+            sender,
             receipt,
         }
     }
 
-    /// Get the transaction digest
-    pub fn transaction_digest(&self) -> &Digest {
-        &self.receipt.transaction_digest
+    pub fn from_signed(signed: &SignedTransaction, receipt: TransactionReceipt) -> Self {
+        Self::new(signed.digest(), signed.transaction().sender(), receipt)
     }
 
-    /// Check if the transaction executed successfully
+    /// Signed transaction digest (also used as the public tx id on the wire).
+    pub fn transaction_digest(&self) -> &Digest {
+        &self.signed_digest
+    }
+
+    pub fn signed_digest(&self) -> &Digest {
+        &self.signed_digest
+    }
+
     pub fn is_success(&self) -> bool {
         self.receipt.is_success()
     }
 
-    /// Convert to transaction receipt
     pub fn to_receipt(&self) -> TransactionReceipt {
         self.receipt.clone()
     }
 
-    /// Get the transaction sender
     pub fn sender(&self) -> Address {
-        self.transaction.transaction().sender()
+        self.sender
     }
-
-    /// Get all input object IDs for the transaction
-    pub fn inputs(&self) -> Vec<crate::lightpool_types::object::ObjectID> {
-        self.transaction.inputs()
-    }
-} 
+}

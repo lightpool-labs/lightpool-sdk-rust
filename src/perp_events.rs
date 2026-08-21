@@ -313,9 +313,7 @@ pub fn extract_perp_order_id_from_events(receipt: &TransactionReceipt) -> Option
 #[derive(Debug, Serialize)]
 pub struct HumanReadablePerpEvent {
     pub event_type: String,
-    pub sender: Option<String>,
     pub contract: Option<String>,
-    pub block_num: u64,
     pub data: serde_json::Value,
 }
 
@@ -518,9 +516,7 @@ pub fn print_perp_receipt_json(receipt: &TransactionReceipt) {
                 EventType::Transfer => "Transfer".to_string(),
                 _ => "Unknown".to_string()
             },
-            sender: event.sender.map(|addr| format!("0x{}", hex::encode(addr.as_bytes()))),
             contract: event.contract.map(|addr| format!("0x{}", hex::encode(addr.as_bytes()))),
-            block_num: event.block_num,
             data: parse_perp_event_data(&event.event_type, &event.data)
                 .unwrap_or(serde_json::json!(null))
         }

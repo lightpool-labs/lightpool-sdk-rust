@@ -143,9 +143,7 @@ pub fn extract_spark_balance_id_from_events(receipt: &TransactionReceipt, to: &A
 #[derive(Debug, Serialize)]
 pub struct HumanReadableSparkEvent {
     pub event_type: String,
-    pub sender: Option<String>,
     pub contract: Option<String>,
-    pub block_num: u64,
     pub data: serde_json::Value,
 }
 
@@ -259,9 +257,7 @@ pub fn print_spark_receipt_json(receipt: &TransactionReceipt) {
     let human_readable_events: Vec<HumanReadableSparkEvent> = receipt.events.iter().map(|event| {
         HumanReadableSparkEvent {
             event_type: match &event.event_type { EventType::Call(name) => name.clone(), EventType::Transfer => "Transfer".to_string(), _ => "Unknown".to_string() },
-            sender: event.sender.map(|addr| format!("0x{}", hex::encode(addr.as_bytes()))),
             contract: event.contract.map(|addr| format!("0x{}", hex::encode(addr.as_bytes()))),
-            block_num: event.block_num,
             data: parse_spark_event_data(&event.event_type, &event.data).unwrap_or(serde_json::json!(null)),
         }
     }).collect();

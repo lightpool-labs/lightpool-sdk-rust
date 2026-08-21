@@ -31,6 +31,7 @@ pub mod name_type;
 pub mod block;
 pub mod clearinghouse_event;
 pub mod call;
+mod serde_hex;
 
 pub use address_type::Address;
 pub use contract::ContractAddress;

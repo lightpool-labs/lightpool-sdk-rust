@@ -114,9 +114,7 @@ pub fn extract_transfer_remainder_from_events(receipt: &TransactionReceipt) -> O
 
 #[derive(Debug, Serialize)]
 pub struct HumanReadableEvent {
-    pub block_num: u64,
     pub event_type: String,
-    pub sender: Option<String>,
     pub contract: Option<String>,
     pub data: serde_json::Value,
 }
@@ -193,9 +191,7 @@ pub fn print_receipt_json(receipt: &TransactionReceipt) {
                 EventType::Transfer => "Transfer".to_string(),
                 _ => "Unknown".to_string()
             },
-            sender: event.sender.map(|addr| addr.to_string()),
             contract: event.contract.map(|addr| addr.to_string()),
-            block_num: event.block_num,
             data: parse_event_data(&event.event_type, &event.data)
                 .unwrap_or(serde_json::json!(null))
         }

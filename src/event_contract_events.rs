@@ -73,6 +73,12 @@ pub struct EventContractRedeemedEvent {
     pub outcome: u8,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventContractClosedEvent {
+    pub market_id: ObjectID,
+    pub market_address: ContractAddress,
+}
+
 pub fn extract_event_contract_created_from_events(
     receipt: &TransactionReceipt,
 ) -> Option<EventContractCreatedEvent> {
@@ -200,9 +206,7 @@ pub fn print_event_contract_receipt_json(receipt: &TransactionReceipt) {
             };
             Some(serde_json::json!({
                 "event_type": event_type,
-                "sender": event.sender.map(|s| s.to_string()),
                 "contract": event.contract.map(|c| c.to_string()),
-                "block_num": event.block_num,
                 "data": data,
             }))
         })

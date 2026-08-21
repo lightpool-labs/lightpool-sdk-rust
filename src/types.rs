@@ -2,14 +2,15 @@
 // Author: xiaoyu1998
 
 use serde::{Deserialize, Serialize};
-use crate::lightpool_types::{TransactionReceipt, SignedTransaction, TransactionEvent, ExecutionStatus};
-use hex;
+use crate::lightpool_types::{TransactionReceipt, TransactionEvent, ExecutionStatus};
 
 /// Response from submitting a transaction
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SubmitTransactionResponse {
     /// The digest of the transaction
     pub digest: String,
+    /// Block number where the transaction was included
+    pub block_num: u64,
     /// The receipt of executing the transaction
     pub receipt: TransactionReceipt,
 }
@@ -47,26 +48,20 @@ pub struct RpcError {
     pub data: Option<serde_json::Value>,
 }
 
-/// A display-friendly version of TransactionReceipt with hex-encoded transaction digest
+/// A display-friendly version of TransactionReceipt
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DisplayTransactionReceipt {
-    /// Transaction digest as hex string
-    pub transaction_digest: String,
     /// Transaction execution status
     pub status: ExecutionStatus,
     /// Transaction events
     pub events: Vec<TransactionEvent>,
-    /// Block number where transaction was included
-    pub block_num: u64,
 }
 
 impl From<TransactionReceipt> for DisplayTransactionReceipt {
     fn from(receipt: TransactionReceipt) -> Self {
         Self {
-            transaction_digest: hex::encode(receipt.transaction_digest.as_bytes()),
             status: receipt.status,
             events: receipt.events,
-            block_num: receipt.block_num,
         }
     }
 }
@@ -76,17 +71,12 @@ impl DisplayTransactionReceipt {
     pub fn is_success(&self) -> bool {
         matches!(self.status, ExecutionStatus::Success)
     }
-    
-    /// Get transaction digest as hex string
-    pub fn digest_hex(&self) -> &str {
-        &self.transaction_digest
-    }
-    
+
     /// Get event count
     pub fn event_count(&self) -> usize {
         self.events.len()
     }
-    
+
     /// Check if has events
     pub fn has_events(&self) -> bool {
         !self.events.is_empty()
@@ -102,4 +92,4 @@ impl<T> RpcRequest<T> {
             id,
         }
     }
-} 
+}

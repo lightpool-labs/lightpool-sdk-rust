@@ -4,10 +4,10 @@
 use crate::lightpool_types::clearinghouse_event::ClearingHouseEvent;
 use crate::lightpool_types::crypto::Digest;
 use crate::lightpool_types::effects::TransactionResult;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 /// Receipt-oriented view of a committed block: each transaction with its receipt.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ReceiptBlock {
     /// Block number
     pub block_num: u64,
@@ -18,6 +18,28 @@ pub struct ReceiptBlock {
     /// Block-end clearinghouse outcomes (not per-tx events).
     #[serde(default)]
     pub clearinghouse_events: Vec<ClearingHouseEvent>,
+}
+
+#[derive(Deserialize)]
+struct ReceiptBlockDe {
+    block_num: u64,
+    digest: Digest,
+    #[serde(default)]
+    transaction_outputs: Vec<TransactionResult>,
+    #[serde(default)]
+    clearinghouse_events: Vec<ClearingHouseEvent>,
+}
+
+impl<'de> Deserialize<'de> for ReceiptBlock {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let block = ReceiptBlockDe::deserialize(deserializer)?;
+        Ok(Self {
+            block_num: block.block_num,
+            digest: block.digest,
+            transaction_outputs: block.transaction_outputs,
+            clearinghouse_events: block.clearinghouse_events,
+        })
+    }
 }
 
 impl ReceiptBlock {

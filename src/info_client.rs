@@ -201,7 +201,6 @@ impl InfoClient {
                             if let Some(params) = value.get("params") {
                                 if let Some(result) = params.get("result") {
                                     if let Some(data) = result.get("data") {
-                                        // Server packs a typed enum; try parse full Message first
                                         if let Ok(msg) = serde_json::from_value::<Message>(data.clone()) {
                                             if sender.send(msg).is_err() {
                                                 error!("Failed to send WS notification");

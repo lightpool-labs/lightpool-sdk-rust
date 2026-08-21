@@ -189,9 +189,7 @@ pub fn extract_order_id_from_events(receipt: &TransactionReceipt) -> Option<Orde
 #[derive(Debug, Serialize)]
 pub struct HumanReadableSpotEvent {
     pub event_type: String,
-    pub sender: Option<String>,
     pub contract: Option<String>,
-    pub block_num: u64,
     pub data: serde_json::Value,
 }
 
@@ -371,9 +369,7 @@ pub fn print_spot_receipt_json(receipt: &TransactionReceipt) {
                 EventType::Transfer => "Transfer".to_string(),
                 _ => "Unknown".to_string()
             },
-            sender: event.sender.map(|addr| addr.to_string()),
             contract: event.contract.map(|addr| addr.to_string()),
-            block_num: event.block_num,
             data: parse_spot_event_data(&event.event_type, &event.data)
                 .unwrap_or(serde_json::json!(null))
         }

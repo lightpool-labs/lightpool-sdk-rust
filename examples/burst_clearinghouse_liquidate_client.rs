@@ -526,9 +526,6 @@ async fn validate_burst_market_fills(
             "{failures}/{validate_count} senders failed market-fill balance check",
         ));
     }
-    info!(
-        "Phase 6 validate: first {validate_count} senders passed market-fill balance check",
-    );
     Ok(())
 }
 
@@ -967,9 +964,7 @@ async fn setup_positions_mempool_burst(
     let positions_per_market = total_positions.div_ceil(num_markets);
     let book_liquidity_base = TRADE_AMOUNT.saturating_mul(positions_per_market as u64);
     info!(
-        "Spot book liquidity: one GTC sell + one GTC bid per market ({num_markets} each), \
-         {book_liquidity_base} base/mkt for margin IOC (~{positions_per_market} fills); \
-         burst ask {burst_ask_base_per_market} base/mkt for Phase 6 market buys"
+        "Phase 3 book: {num_markets} mkts, ioc={book_liquidity_base}/mkt, burst_ask={burst_ask_base_per_market}/mkt"
     );
 
     // Fund borrowers once each (enough collateral for their share of positions).
@@ -1634,12 +1629,6 @@ async fn spot_place_order_burst(
     if senders.is_empty() || markets.is_empty() {
         return Ok(());
     }
-    info!(
-        "Margin market burst (1/{MARKET_ORDER_EVERY} market buy + rest limit sell) → mempool, senders={} markets={} duration={}s",
-        senders.len(),
-        markets.len(),
-        duration_secs
-    );
     let end_time = Instant::now() + Duration::from_secs(duration_secs);
     let mut tx_count = 0u64;
     let mut place_order_seq = 0u64;
@@ -1843,11 +1832,11 @@ async fn finalize_spot_burst_metrics(
     );
 
     info!(
-        "Waiting 5s before balance validation for first {} of {} senders...",
+        "Waiting 3s before balance validation for first {} of {} senders...",
         validate_senders.min(senders.len()),
         senders.len()
     );
-    tokio::time::sleep(Duration::from_secs(5)).await;
+    tokio::time::sleep(Duration::from_secs(3)).await;
 
     validate_burst_market_fills(
         client,
@@ -2004,7 +1993,6 @@ async fn main() -> Result<(), String> {
     let position_markets = cli.position_markets.max(1).min(total_positions);
     let ladder_per_market = liquidatable_cap.div_ceil(position_markets);
     let ladder_mark_low = mark_human_for_ladder_slot(ladder_per_market.saturating_sub(1));
-    let decoys = total_positions.saturating_sub(liquidatable_cap);
 
     let rpc = format!("http://{}:26300", cli.address);
     let mempool = format!("{}:26000", cli.address);
@@ -2012,18 +2000,13 @@ async fn main() -> Result<(), String> {
     info!("========================================");
     info!("RPC: {}", rpc);
     info!("Mempool: {}", mempool);
-    let markets_per_mark_step = cli.positions / LIQS_PER_MARK;
     info!(
-        "Positions: {total_positions} on {position_markets} markets \
-         (ladder={liquidatable_cap} ~{ladder_per_market}/mkt mark {CRASH_MARK_START}→{ladder_mark_low}, \
-         decoys={decoys}); {LIQS_PER_MARK} liq/mark/mkt; target ~{}/mark step (~{} markets × {LIQS_PER_MARK})",
+        "Positions: {total_positions}/{position_markets} mkts, ladder={liquidatable_cap} mark {CRASH_MARK_START}→{ladder_mark_low}, liq={LIQS_PER_MARK}/mark step={}",
         cli.positions,
-        markets_per_mark_step.max(1),
     );
     info!(
-        "Phase 6 burst: margin_markets={position_markets} senders={} rate={}/s duration={}s \
-         1/{MARKET_ORDER_EVERY} market_buy + limit_sell={SPOT_BURST_ORDER_AMOUNT} (1 mempool connection)",
-        cli.senders, cli.rate_per_task, cli.duration
+        "Phase 6: {} senders, {} mkts, {}/s, {}s, 1/{MARKET_ORDER_EVERY} mkt buy",
+        cli.senders, position_markets, cli.rate_per_task, cli.duration
     );
     info!("no_liquidate: {}", cli.no_liquidate);
 
@@ -2088,9 +2071,7 @@ async fn main() -> Result<(), String> {
     let burst_ask_btc_total =
         burst_ask_base_per_market.saturating_mul(position_markets as u64);
     info!(
-        "Phase 6 funding: burst ask {burst_ask_base_per_market} base/mkt ({}% headroom), \
-         quote/sender={burst_quote_fund} for market buys",
-        BURST_ASK_HEADROOM_BPS / 100
+        "Burst fund: ask={burst_ask_base_per_market}/mkt, quote/sender={burst_quote_fund}"
     );
     let usdt = create_token(
         &client,
@@ -2165,7 +2146,7 @@ async fn main() -> Result<(), String> {
 
     let burst_markets = burst_markets_from_fixtures(&fixtures, usdt, btc);
     info!(
-        "Phase 4: fund {} burst senders on {} margin markets (1/{MARKET_ORDER_EVERY} market buy @ 50k ask, rest limit sell above bid; crash bids untouched)",
+        "Phase 4: fund {} senders on {} markets",
         cli.senders,
         burst_markets.len()
     );
@@ -2235,19 +2216,6 @@ async fn main() -> Result<(), String> {
     let do_liquidate = !cli.no_liquidate;
     let burst_rate = cli.rate_per_task;
     let markets_per_block = (cli.positions / LIQS_PER_MARK).max(1);
-    if do_liquidate {
-        info!(
-            "Phase 6: 1/{MARKET_ORDER_EVERY} market buy + limit sell @ {burst_rate}/s on margin markets, mixed with mark ladder {}↓ ({} liq/mark/mkt, ~{} ora / {} txs)",
-            CRASH_MARK_START,
-            LIQS_PER_MARK,
-            markets_per_block.min(BURST_BLOCK_TXS),
-            BURST_BLOCK_TXS
-        );
-    } else {
-        info!(
-            "Phase 6: 1/{MARKET_ORDER_EVERY} market buy + limit sell @ {burst_rate}/s only (--no-liquidate skips ora mix)"
-        );
-    }
 
     let oracle_markets: Arc<Vec<ContractAddress>> = Arc::new(
         burst_markets
@@ -2265,18 +2233,22 @@ async fn main() -> Result<(), String> {
     } else {
         0
     };
-    info!(
-        "Phase 6 burst: senders={} margin_markets={} @ {}/s; ora markets={} every {} txs",
-        burst_senders.len(),
-        burst_markets.len(),
-        cli.rate_per_task,
-        oracle_markets.len(),
-        if oracle_every_n == 0 {
-            0
-        } else {
+    if do_liquidate {
+        info!(
+            "Phase 6 burst: {} senders, {} mkts @ {}/s, ora every {} txs",
+            burst_senders.len(),
+            burst_markets.len(),
+            burst_rate,
             oracle_every_n
-        }
-    );
+        );
+    } else {
+        info!(
+            "Phase 6 burst: {} senders, {} mkts @ {}/s (no ora)",
+            burst_senders.len(),
+            burst_markets.len(),
+            burst_rate
+        );
+    }
 
     let oracle_counter = Arc::new(AtomicU64::new(0));
     let oracle_mix = if oracle_every_n > 0 {
