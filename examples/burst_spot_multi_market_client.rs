@@ -7,6 +7,7 @@ use lightpool_sdk::{
     TransferParams, ExecutionStatus, EventType, EventData,
     OrderSide, TimeInForce, OrderParamsType, MarketState, SegmentSize, TOKEN_SCALE,
 };
+use lightpool_sdk::lightpool_types::call::{GetBalance, GetBalanceParams};
 use lightpool_sdk::spot_events::MarketCreatedEvent;
 use lightpool_sdk::token_events::TokenCreatedEvent;
 
@@ -28,6 +29,10 @@ const SETUP_ACTIONS_BATCH: usize = 64;
 const BURST_SLIPPAGE: u64 = 100;
 /// One market sell per this many burst txs (~1% fills, 99% resting limit sells).
 const MARKET_ORDER_EVERY: u64 = 100;
+const VALIDATE_SENDERS: usize = 10;
+const MAKER_FEE_BPS: u16 = 10;
+const TAKER_FEE_BPS: u16 = 20;
+const FEE_BPS_SCALE: u64 = 1_000;
 
 #[derive(Parser)]
 #[clap(
@@ -100,6 +105,21 @@ fn quote_for_base(amount: u64, price: u64) -> u64 {
     ((amount as u128).saturating_mul(price as u128) / TOKEN_SCALE as u128) as u64
 }
 
+fn quote_fee(notional: u64, fee_bps: u16) -> u64 {
+    let fee = ((notional as u128).saturating_mul(fee_bps as u128) / FEE_BPS_SCALE as u128) as u64;
+    fee.min(notional)
+}
+
+fn quote_net_for_sell_fill(amount: u64, price: u64, taker_fee_bps: u16) -> u64 {
+    let gross = quote_for_base(amount, price);
+    gross.saturating_sub(quote_fee(gross, taker_fee_bps))
+}
+
+fn buy_lock_quote(base_amount: u64, price: u64, maker_fee_bps: u16) -> u64 {
+    let notional = quote_for_base(base_amount, price);
+    notional.saturating_add(quote_fee(notional, maker_fee_bps))
+}
+
 fn bid_liquidity_base(cli: &Cli, market_index: usize) -> u64 {
     let market_senders = senders_for_market(cli.senders, cli.num_markets, market_index);
     let market_txs = cli
@@ -152,9 +172,159 @@ fn burst_order_params(market: &SpotMarketInfo, order_amount: u64, seq: u64) -> P
     }
 }
 
+fn burst_orders_per_sender_multi_task(
+    tasks: usize,
+    senders: usize,
+    total_orders: u64,
+) -> Vec<(u64, u64)> {
+    if senders == 0 || tasks == 0 {
+        return Vec::new();
+    }
+
+    let mut per_sender = vec![(0u64, 0u64); senders];
+    let senders_per_task = senders / tasks;
+    let remaining_senders = senders % tasks;
+    let base_orders_per_task = total_orders / tasks as u64;
+    let extra_task_orders = total_orders % tasks as u64;
+
+    for task_id in 0..tasks {
+        let start_index =
+            task_id * senders_per_task + std::cmp::min(task_id, remaining_senders);
+        let end_index = start_index
+            + senders_per_task
+            + if task_id < remaining_senders { 1 } else { 0 };
+        let range_size = end_index - start_index;
+        if range_size == 0 {
+            continue;
+        }
+
+        let task_orders = base_orders_per_task + if task_id < extra_task_orders as usize {
+            1
+        } else {
+            0
+        };
+
+        for tx_count in 0..task_orders {
+            let sender_index = start_index + (tx_count as usize % range_size);
+            if is_market_burst_order(tx_count) {
+                per_sender[sender_index].0 += 1;
+            } else {
+                per_sender[sender_index].1 += 1;
+            }
+        }
+    }
+
+    per_sender
+}
+
+async fn query_token_balance(
+    client: &LightPoolClient,
+    token: ContractAddress,
+    account: Address,
+) -> Result<GetBalance, String> {
+    let action = ActionBuilder::get_balance(token, account, GetBalanceParams {})
+        .map_err(|e| format!("get_balance action: {e}"))?;
+    let tx = TransactionBuilder::new()
+        .account(account)
+        .expiration(u64::MAX)
+        .add_action(action)
+        .build_and_without_sign()
+        .map_err(|e| format!("get_balance tx: {e}"))?;
+    let bytes = client
+        .call(tx)
+        .await
+        .map_err(|e| format!("get_balance call: {e}"))?;
+    bincode::deserialize(&bytes).map_err(|e| format!("decode GetBalance: {e}"))
+}
+
+async fn validate_burst_market_fills(
+    client: &LightPoolClient,
+    senders: &[BurstSpotSender],
+    markets: &[SpotMarketInfo],
+    validate_count: usize,
+    total_orders: u64,
+    fund_base: u64,
+    order_amount: u64,
+    tasks: usize,
+    final_rpc_market_sell_on_first_sender: bool,
+) -> Result<(), String> {
+    if senders.is_empty() || validate_count == 0 {
+        return Ok(());
+    }
+
+    let validate_count = validate_count.min(senders.len());
+    let counts = burst_orders_per_sender_multi_task(tasks, senders.len(), total_orders);
+    let mut failures = 0usize;
+
+    info!(
+        "Validate market-order fills for first {validate_count}/{} senders (total_orders={total_orders})...",
+        senders.len()
+    );
+
+    for (idx, sender) in senders.iter().enumerate().take(validate_count) {
+        let market = &markets[sender.market_index];
+        let mut market_sells = counts[idx].0;
+        if final_rpc_market_sell_on_first_sender && idx == 0 {
+            market_sells += 1;
+        }
+        let limit_sells = counts[idx].1;
+        let quote_per_fill_net =
+            quote_net_for_sell_fill(order_amount, market.match_price, TAKER_FEE_BPS);
+
+        let expected_base_total = fund_base.saturating_sub(market_sells.saturating_mul(order_amount));
+        let expected_base_locked = limit_sells.saturating_mul(order_amount);
+        let expected_base_available = fund_base
+            .saturating_sub(market_sells.saturating_mul(order_amount))
+            .saturating_sub(limit_sells.saturating_mul(order_amount));
+        let expected_quote_total = market_sells.saturating_mul(quote_per_fill_net);
+
+        let base = query_token_balance(client, market.base_token, sender.address).await?;
+        let quote = query_token_balance(client, market.quote_token, sender.address).await?;
+
+        let base_ok = base.total == expected_base_total
+            && base.locked == expected_base_locked
+            && base.available == expected_base_available;
+        let quote_ok = quote.total == expected_quote_total;
+
+        if base_ok && quote_ok {
+            info!(
+                "Sender {idx} ({sender}): PASS market_sells={market_sells} limit_sells={limit_sells}",
+                sender = sender.address,
+            );
+        } else {
+            failures += 1;
+            let failed_market_fills = if quote_per_fill_net > 0 && quote.total < expected_quote_total {
+                (expected_quote_total - quote.total).div_ceil(quote_per_fill_net)
+            } else {
+                0
+            };
+            error!(
+                "Sender {idx} ({sender}): FAIL market_sells={market_sells} limit_sells={limit_sells} failed_market_fills={failed_market_fills}",
+                sender = sender.address,
+            );
+            error!(
+                "  base: got total={} locked={} avail={}; want total={expected_base_total} locked={expected_base_locked} avail={expected_base_available}",
+                base.total, base.locked, base.available,
+            );
+            error!(
+                "  quote: got total={}; want total={expected_quote_total}",
+                quote.total,
+            );
+        }
+    }
+
+    if failures > 0 {
+        return Err(format!(
+            "{failures}/{validate_count} senders failed market-fill balance check",
+        ));
+    }
+    Ok(())
+}
+
 fn quote_supply_for_market(cli: &Cli, market_index: usize, fund_amount: u64) -> u64 {
     let bid_base = bid_liquidity_base(cli, market_index);
-    quote_for_base(bid_base, market_match_price(market_index)).saturating_add(fund_amount)
+    buy_lock_quote(bid_base, market_match_price(market_index), MAKER_FEE_BPS)
+        .saturating_add(fund_amount)
 }
 
 fn extract_token_addresses_from_events(
@@ -374,8 +544,8 @@ async fn create_markets(
                 quote_token: tokens[quote_index],
                 min_order_size: MIN_ORDER_SIZE,
                 tick_size: TICK_SIZE,
-                maker_fee_bps: 10,
-                taker_fee_bps: 20,
+                maker_fee_bps: MAKER_FEE_BPS,
+                taker_fee_bps: TAKER_FEE_BPS,
                 allow_market_orders: true,
                 state: MarketState::Active,
                 limit_order: true,
@@ -953,6 +1123,25 @@ async fn main() -> Result<(), String> {
             "FAILED (measurement still valid)"
         }
     );
+
+    info!(
+        "Validating market-order fills for first {} senders via get_balance...",
+        VALIDATE_SENDERS
+    );
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    validate_burst_market_fills(
+        &client,
+        senders.as_ref(),
+        markets.as_ref(),
+        VALIDATE_SENDERS,
+        total_orders,
+        fund_amount,
+        cli.order_amount,
+        cli.tasks,
+        final_tx_success,
+    )
+    .await?;
+
     info!("Markets: {}", cli.num_markets);
     info!("Total orders sent: {}", total_orders);
     info!(

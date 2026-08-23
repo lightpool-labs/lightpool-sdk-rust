@@ -60,7 +60,7 @@ pub use token_helpers::{
 pub use spot_actions::{
     CreateMarketParams, UpdateMarketParams, ClaimMarketFeesParams, PlaceOrderParams,
     PlaceOrderGroupParams, AttachedTriggerParams, ParentOrderType,
-    CancelOrderParams, UpdateOrderParams, SubmitOraclePriceParams,
+    CancelOrderParams, UpdateOrderParams, OraclePriceUpdate, SubmitOraclePriceParams,
     OrderSide, TimeInForce, OrderParamsType, MarketState, SegmentSize,
     LimitOrderParams, TriggerOrderParams, MarketOrderParams, TriggerType,
 };

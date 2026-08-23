@@ -36,7 +36,7 @@ pub use lightpool_types::{
     token_object_id, balance_object_id, parse_token_contract,
     CreateMarketParams, UpdateMarketParams, PlaceOrderParams, PlaceOrderGroupParams,
     AttachedTriggerParams, ParentOrderType, CancelOrderParams, UpdateOrderParams,
-    SubmitOraclePriceParams, TriggerType,
+    SubmitOraclePriceParams, OraclePriceUpdate, TriggerType,
     OrderSide, TimeInForce, OrderParamsType, MarketState, SegmentSize,
     spot_module_contract, spot_market_id, token_address_from_contract,
     CreateEventContractParams, MintEventContractParams, BurnEventContractParams,

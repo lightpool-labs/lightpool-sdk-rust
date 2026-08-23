@@ -7,7 +7,8 @@ use crate::lightpool_types::ContractAddress;
 use crate::lightpool_types::{
     CreateTokenParams, MintParams, TransferParams,
     CreateMarketParams, UpdateMarketParams, ClaimMarketFeesParams, PlaceOrderParams,
-    PlaceOrderGroupParams, CancelOrderParams, UpdateOrderParams, SubmitOraclePriceParams,
+    PlaceOrderGroupParams, CancelOrderParams, UpdateOrderParams, OraclePriceUpdate,
+    SubmitOraclePriceParams,
     CreateEventContractParams, MintEventContractParams, BurnEventContractParams,
     ResolveEventContractParams, RedeemEventContractParams,
     InitStakingConfigParams, BondLplParams, UnbondLplParams, PromoteParams,
@@ -253,16 +254,20 @@ impl ActionBuilder {
         ))
     }
 
-    pub fn submit_oracle_price(
-        market_contract: ContractAddress,
-        params: SubmitOraclePriceParams,
-    ) -> SdkResult<Action> {
+    pub fn submit_oracle_price(params: SubmitOraclePriceParams) -> SdkResult<Action> {
         let serialized_params = bincode::serialize(&params)?;
         Ok(Action::new(
-            market_contract,
+            spot_module_contract(),
             SUBMIT_ORACLE_PRICE_ACTION,
             serialized_params,
         ))
+    }
+
+    pub fn submit_oracle_price_for_market(
+        market_contract: ContractAddress,
+        price: u64,
+    ) -> SdkResult<Action> {
+        Self::submit_oracle_price(SubmitOraclePriceParams::single(market_contract, price))
     }
 
     pub fn create_event_contract(params: CreateEventContractParams) -> SdkResult<Action> {

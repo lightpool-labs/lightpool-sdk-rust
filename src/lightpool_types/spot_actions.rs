@@ -204,10 +204,24 @@ pub struct UpdateOrderParams {
     pub token_address: ContractAddress,
 }
 
-/// Validator oracle price submission
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OraclePriceUpdate {
+    pub market: ContractAddress,
+    pub price: u64,
+}
+
+/// Batch oracle quote submission (`ora_submit`): one action, many markets.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubmitOraclePriceParams {
-    pub price: u64,
+    pub updates: Vec<OraclePriceUpdate>,
+}
+
+impl SubmitOraclePriceParams {
+    pub fn single(market: ContractAddress, price: u64) -> Self {
+        Self {
+            updates: vec![OraclePriceUpdate { market, price }],
+        }
+    }
 }
 
 impl fmt::Display for CreateMarketParams {

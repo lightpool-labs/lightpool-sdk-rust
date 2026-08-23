@@ -16,7 +16,7 @@ use lightpool_sdk::{
     ActionBuilder, BorrowParams, ContractAddress, CreateMarginParams, CreateMarketParams,
     CreatePoolParams, CreateTokenParams, DepositCollateralParams, LightPoolClient, LiquidateParams,
     MarketState, OrderParamsType, OrderSide, PlaceOrderParams, SegmentSize, Signer, SupplyParams,
-    SubmitOraclePriceParams, TOKEN_SCALE, TimeInForce, TransactionBuilder, TransferParams,
+    TOKEN_SCALE, TimeInForce, TransactionBuilder, TransferParams,
     WithdrawSupplyParams, MARGIN_MODE_ISOLATED, extract_borrowed_from_events,
     extract_collateral_deposited_from_events, extract_liquidated_from_events,
     extract_margin_created_from_events, extract_market_address_from_events,
@@ -413,10 +413,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nStep 12: Crash BTC mark via spot oracle");
     println!("---------------------------------------");
     println!("   Submit may fail if sender is not a running-committee validator.");
-    let oracle_params = SubmitOraclePriceParams {
-        price: CRASH_PRICE,
-    };
-    let oracle_action = ActionBuilder::submit_oracle_price(market, oracle_params)?;
+    let oracle_action = ActionBuilder::submit_oracle_price_for_market(market, CRASH_PRICE)?;
     let oracle_tx = TransactionBuilder::new()
         .sender(lender)
         .expiration(u64::MAX)

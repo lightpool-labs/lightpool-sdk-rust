@@ -26,7 +26,7 @@ use lightpool_sdk::{
     ContractAddress, CreateMarginParams, CreateMarketParams, CreatePoolParams, CreateTokenParams,
     InitStakingConfigParams, LightPoolClient, MarketState, Message,
     OrderParamsType, OrderSide, PlaceOrderParams, RegisterValidatorParams, SegmentSize, Signer,
-    StakePurpose, SubmitOraclePriceParams, Subscription, SupplyParams, TimeInForce,
+    StakePurpose, Subscription, SupplyParams, TimeInForce,
     TransactionBuilder, TransferParams, WebSocketClient, MARGIN_MODE_ISOLATED, TOKEN_SCALE,
 };
 use log::{info, warn};
@@ -560,13 +560,8 @@ async fn main() -> Result<(), String> {
         "Submitting ora_submit crash mark={} (expect node: clearinghouse liquidate start drained=...)",
         CRASH_PRICE / TOKEN_SCALE
     );
-    let oracle = ActionBuilder::submit_oracle_price(
-        market,
-        SubmitOraclePriceParams {
-            price: CRASH_PRICE,
-        },
-    )
-    .map_err(|e| e.to_string())?;
+    let oracle = ActionBuilder::submit_oracle_price_for_market(market, CRASH_PRICE)
+        .map_err(|e| e.to_string())?;
     match submit_ok(&client, &lender, lender.address(), None, vec![oracle]).await {
         Ok(_) => info!("ora_submit accepted"),
         Err(e) => {

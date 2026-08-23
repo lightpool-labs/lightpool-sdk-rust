@@ -13,7 +13,7 @@ use lightpool_sdk::{
     extract_token_address_from_events, print_receipt_json, print_spot_receipt_json, ActionBuilder,
     Address, AttachedTriggerParams, CancelOrderParams, ContractAddress, CreateMarketParams,
     CreateTokenParams, LightPoolClient, MarketState, OrderParamsType, OrderSide, ParentOrderType,
-    PlaceOrderGroupParams, PlaceOrderParams, SegmentSize, Signer, SubmitOraclePriceParams,
+    PlaceOrderGroupParams, PlaceOrderParams, SegmentSize, Signer,
     TimeInForce, TransactionBuilder, TransferParams, TriggerType, TOKEN_SCALE,
 };
 use std::time::Duration;
@@ -289,10 +289,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("----------------------------------------------------------------------");
     println!("   Mark follows oracle finalize at block end; TP/SL activate from mark.");
 
-    let oracle_params = SubmitOraclePriceParams {
-        price: SL_TRIGGER_PRICE,
-    };
-    let oracle_action = ActionBuilder::submit_oracle_price(market_address, oracle_params)?;
+    let oracle_action =
+        ActionBuilder::submit_oracle_price_for_market(market_address, SL_TRIGGER_PRICE)?;
     let oracle_tx = TransactionBuilder::new()
         .sender(trader1_address)
         .expiration(u64::MAX)

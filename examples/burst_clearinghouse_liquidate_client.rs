@@ -18,10 +18,10 @@
 //! 4. Fund burst senders (margin markets)
 //! 5. Pass first checkpoint only if tip is still below it (skip burst if already past)
 //! 6. Mempool burst @ `--rate-per-task`: 1% market buys (fill 50k asks) + 99% resting
-//!    limit sells above bid on margin markets, mixed with stepped
-//!    crash-mark `ora_submit` (~100 marks per ~2k-tx block) so each mark newly
-//!    liquidates [`LIQS_PER_MARK`] ladder positions per market; remaining positions
-//!    stay healthy (decoys filling clearinghouse scan load).
+//!    limit sells above bid on margin markets, mixed with batched crash-mark
+//!    `ora_submit` batch (~`markets_per_block` markets per tx, ~1 oracle tx per
+//!    ~2k-tx block) so each mark step newly liquidates [`LIQS_PER_MARK`] positions
+//!    per market; remaining positions stay healthy (decoys filling clearinghouse scan load).
 //!
 //! One mempool TCP connection is shared across all phases via an async channel.
 
@@ -40,7 +40,7 @@ use lightpool_sdk::{
     ContractAddress, CreateMarginParams, CreateMarketParams, CreatePoolParams, CreateTokenParams,
     InitStakingConfigParams, LightPoolClient, MarketState,
     OrderParamsType, OrderSide, PlaceOrderParams, RegisterValidatorParams, SegmentSize, Signer,
-    StakePurpose, SubmitOraclePriceParams, SupplyParams, TimeInForce,
+    StakePurpose, OraclePriceUpdate, SubmitOraclePriceParams, SupplyParams, TimeInForce,
     TransactionBuilder, TransferParams, MARGIN_MODE_ISOLATED, TOKEN_SCALE,
 };
 use lightpool_sdk::lightpool_types::{
@@ -85,7 +85,7 @@ const POSITION_MARKETS: usize = 200;
 const DEFAULT_LIQUIDATABLE_POSITIONS: usize = 40_000;
 /// Decoy positions stay healthy through oracle marks down to this human price.
 const DECOY_SAFE_MARK_HUMAN: u64 = 1;
-/// Packed block size used to mix oracle marks into the place_order burst (~100 marks / 2k txs).
+/// Packed block size used to mix batched oracle marks into the place_order burst.
 const BURST_BLOCK_TXS: usize = 2_000;
 const SETUP_BURST_RATE: u64 = 200_000;
 /// Max wait for a post-burst RPC drain probe (create_token receipt).
@@ -291,7 +291,9 @@ struct BurstSpotSender {
 struct OracleBurstMix {
     lender: Arc<Signer>,
     markets: Arc<Vec<ContractAddress>>,
+    batch_size: usize,
     every_n: usize,
+    oracle_next: usize,
     sent: Arc<AtomicU64>,
 }
 
@@ -1276,28 +1278,33 @@ async fn rpc_get_committed_block_num(rpc: &str) -> Result<u64, String> {
         .ok_or_else(|| format!("getSyncInfo missing committed_block_num: {value}"))
 }
 
-/// Crash `ora_submit` mixed into the place_order burst: mark ladder 1000, 999, 998, …
-/// so each price newly exposes [`LIQS_PER_MARK`] positions per market.
-fn unsigned_oracle_mark_tx(
+/// Batched crash `ora_submit` (one action, many markets) mixed into the place_order burst.
+fn unsigned_oracle_marks_batch_tx(
     lender: &Signer,
-    market: ContractAddress,
-    price_human: u64,
+    updates: &[(ContractAddress, u64)],
     expiration: u64,
 ) -> Result<Vec<u8>, String> {
-    let action = ActionBuilder::submit_oracle_price(
-        market,
-        SubmitOraclePriceParams {
-            price: price_human.saturating_mul(TOKEN_SCALE),
-        },
-    )
-    .map_err(|e| format!("oracle action: {e}"))?;
+    if updates.is_empty() {
+        return Err("oracle batch is empty".to_string());
+    }
+    let params = SubmitOraclePriceParams {
+        updates: updates
+            .iter()
+            .map(|(market, price_human)| OraclePriceUpdate {
+                market: *market,
+                price: price_human.saturating_mul(TOKEN_SCALE),
+            })
+            .collect(),
+    };
+    let action =
+        ActionBuilder::submit_oracle_price(params).map_err(|e| format!("oracle batch action: {e}"))?;
     let tx = TransactionBuilder::new()
         .sender(lender.address())
         .expiration(expiration)
         .add_action(action)
         .build_and_without_sign()
-        .map_err(|e| format!("oracle build: {e}"))?;
-    bincode::serialize(&tx).map_err(|e| format!("oracle serialize: {e}"))
+        .map_err(|e| format!("oracle batch build: {e}"))?;
+    bincode::serialize(&tx).map_err(|e| format!("oracle batch serialize: {e}"))
 }
 
 /// Drive tip past checkpoint with confirmed RPC txs (create_token — no market token mismatch).
@@ -1624,7 +1631,7 @@ async fn spot_place_order_burst(
     duration_secs: u64,
     order_amount: u64,
     counter: Arc<AtomicU64>,
-    oracle: Option<OracleBurstMix>,
+    mut oracle: Option<OracleBurstMix>,
 ) -> Result<(), String> {
     if senders.is_empty() || markets.is_empty() {
         return Ok(());
@@ -1633,7 +1640,6 @@ async fn spot_place_order_burst(
     let mut tx_count = 0u64;
     let mut place_order_seq = 0u64;
     let mut expiration = u64::MAX;
-    let mut oracle_next: usize = 0;
     let oracle_n = oracle.as_ref().map(|m| m.markets.len()).unwrap_or(0);
     while Instant::now() < end_time {
         let mix_oracle = match oracle.as_ref() {
@@ -1643,12 +1649,22 @@ async fn spot_place_order_burst(
             _ => false,
         };
         let tx_bytes = if mix_oracle {
-            let mix = oracle.as_ref().unwrap();
-            let wave = oracle_next / oracle_n;
-            let market = mix.markets[oracle_next % oracle_n];
-            oracle_next += 1;
+            let mix = oracle.as_mut().unwrap();
+            let batch_size = mix.batch_size.max(1).min(oracle_n);
+            let wave = mix.oracle_next / oracle_n;
+            let start = mix.oracle_next % oracle_n;
             let price_human = CRASH_MARK_START.saturating_sub(wave as u64).max(1);
-            let bytes = unsigned_oracle_mark_tx(mix.lender.as_ref(), market, price_human, expiration)?;
+            let mut updates = Vec::with_capacity(batch_size);
+            for i in 0..batch_size {
+                let mi = (start + i) % oracle_n;
+                updates.push((mix.markets[mi], price_human));
+            }
+            mix.oracle_next = mix.oracle_next.saturating_add(batch_size);
+            let bytes = unsigned_oracle_marks_batch_tx(
+                mix.lender.as_ref(),
+                &updates,
+                expiration,
+            )?;
             mix.sent.fetch_add(1, Ordering::Relaxed);
             bytes
         } else {
@@ -1682,7 +1698,7 @@ async fn spot_place_order_burst(
         .as_ref()
         .map(|m| m.sent.load(Ordering::Relaxed))
         .unwrap_or(0);
-    info!("Burst queued {tx_count} txs (ora_submit={ora})");
+    info!("Burst queued {tx_count} txs (ora_submit_batches={ora})");
     Ok(())
 }
 
@@ -2212,7 +2228,7 @@ async fn main() -> Result<(), String> {
         fixtures.len()
     );
 
-    // --- Phase 6: market-buy burst @ rate_per_task, oracle marks mixed in (~100 / 2k txs) ---
+    // --- Phase 6: market-buy burst @ rate_per_task, batched oracle marks mixed in ---
     let do_liquidate = !cli.no_liquidate;
     let burst_rate = cli.rate_per_task;
     let markets_per_block = (cli.positions / LIQS_PER_MARK).max(1);
@@ -2235,10 +2251,11 @@ async fn main() -> Result<(), String> {
     };
     if do_liquidate {
         info!(
-            "Phase 6 burst: {} senders, {} mkts @ {}/s, ora every {} txs",
+            "Phase 6 burst: {} senders, {} mkts @ {}/s, ora batch {} mkts every {} txs",
             burst_senders.len(),
             burst_markets.len(),
             burst_rate,
+            oracle_per_block,
             oracle_every_n
         );
     } else {
@@ -2255,7 +2272,9 @@ async fn main() -> Result<(), String> {
         Some(OracleBurstMix {
             lender: Arc::clone(&lender),
             markets: Arc::clone(&oracle_markets),
+            batch_size: oracle_per_block,
             every_n: oracle_every_n,
+            oracle_next: 0,
             sent: Arc::clone(&oracle_counter),
         })
     } else {
