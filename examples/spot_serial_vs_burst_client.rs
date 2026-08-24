@@ -29,7 +29,7 @@ const SETUP_ACTIONS_BATCH: usize = 64;
 enum RunMode {
     /// One market, one sender, sequential RPC place orders
     Serial,
-    /// Multi-market mempool burst (like burst_spot_multi_market_client)
+    /// Multi-market mempool burst (like burst_spot)
     Burst,
     /// Run serial first, then burst, and print comparison
     Both,

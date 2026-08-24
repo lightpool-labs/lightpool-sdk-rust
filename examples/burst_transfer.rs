@@ -8,6 +8,7 @@ use lightpool_sdk::{
     extract_token_address_from_events,
     balance_object_id,
 };
+use lightpool_sdk::lightpool_types::call::{GetBalance, GetBalanceParams};
 use std::time::{Duration, Instant};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -19,6 +20,9 @@ use bytes::Bytes;
 use clap::Parser;
 use env_logger::Env;
 use log::{info, warn, error};
+
+const VALIDATE_SENDERS: usize = 10;
+const VALIDATE_RECIPIENTS: usize = 10;
 
 #[derive(Parser)]
 #[clap(
@@ -81,6 +85,160 @@ fn build_recipient_list(count: usize) -> Vec<Address> {
 
 fn burst_recipient_index(sender_index: usize, tx_count: u64, recipient_count: usize) -> usize {
     (sender_index + tx_count as usize) % recipient_count
+}
+
+fn burst_transfers_per_account(
+    tasks: usize,
+    senders: usize,
+    recipients: usize,
+    total_tx: u64,
+) -> (Vec<u64>, Vec<u64>) {
+    if senders == 0 || tasks == 0 || recipients == 0 {
+        return (Vec::new(), Vec::new());
+    }
+
+    let mut sender_outs = vec![0u64; senders];
+    let mut recipient_ins = vec![0u64; recipients];
+    let senders_per_task = senders / tasks;
+    let remaining_senders = senders % tasks;
+    let base_tx_per_task = total_tx / tasks as u64;
+    let extra_task_txs = total_tx % tasks as u64;
+
+    for task_id in 0..tasks {
+        let start_index =
+            task_id * senders_per_task + std::cmp::min(task_id, remaining_senders);
+        let end_index = start_index
+            + senders_per_task
+            + if task_id < remaining_senders { 1 } else { 0 };
+        let range_size = end_index - start_index;
+        if range_size == 0 {
+            continue;
+        }
+
+        let task_txs = base_tx_per_task + if task_id < extra_task_txs as usize { 1 } else { 0 };
+        for tx_count in 0..task_txs {
+            let sender_index = start_index + (tx_count as usize % range_size);
+            let recipient_index = burst_recipient_index(sender_index, tx_count, recipients);
+            sender_outs[sender_index] += 1;
+            recipient_ins[recipient_index] += 1;
+        }
+    }
+
+    (sender_outs, recipient_ins)
+}
+
+async fn query_token_balance(
+    client: &LightPoolClient,
+    token: ContractAddress,
+    account: Address,
+) -> Result<GetBalance, String> {
+    let action = ActionBuilder::get_balance(token, account, GetBalanceParams {})
+        .map_err(|e| format!("get_balance action: {e}"))?;
+    let tx = TransactionBuilder::new()
+        .account(account)
+        .expiration(u64::MAX)
+        .add_action(action)
+        .build_and_without_sign()
+        .map_err(|e| format!("get_balance tx: {e}"))?;
+    let bytes = client
+        .call(tx)
+        .await
+        .map_err(|e| format!("get_balance call: {e}"))?;
+    bincode::deserialize(&bytes).map_err(|e| format!("decode GetBalance: {e}"))
+}
+
+async fn validate_burst_transfer_balances(
+    client: &LightPoolClient,
+    token_contract: ContractAddress,
+    senders: &[BurstSender],
+    recipients: &[Address],
+    total_tx: u64,
+    fund_amount: u64,
+    transfer_amount: u64,
+    tasks: usize,
+    final_rpc_transfer_on_first_sender: bool,
+) -> Result<(), String> {
+    if senders.is_empty() || recipients.is_empty() {
+        return Ok(());
+    }
+
+    let (mut sender_outs, mut recipient_ins) =
+        burst_transfers_per_account(tasks, senders.len(), recipients.len(), total_tx);
+
+    if final_rpc_transfer_on_first_sender {
+        sender_outs[0] = sender_outs[0].saturating_add(1);
+        let recipient_index = burst_recipient_index(0, 0, recipients.len());
+        recipient_ins[recipient_index] = recipient_ins[recipient_index].saturating_add(1);
+    }
+
+    let validate_senders = VALIDATE_SENDERS.min(senders.len());
+    let validate_recipients = VALIDATE_RECIPIENTS.min(recipients.len());
+    let mut failures = 0usize;
+
+    info!(
+        "Validate transfer balances: first {validate_senders}/{} senders and first {validate_recipients}/{} recipients (total_tx={total_tx})...",
+        senders.len(),
+        recipients.len()
+    );
+
+    for (idx, sender) in senders.iter().enumerate().take(validate_senders) {
+        let outs = sender_outs[idx];
+        let expected_total = fund_amount.saturating_sub(outs.saturating_mul(transfer_amount));
+        let balance = query_token_balance(client, token_contract, sender.address).await?;
+        let ok = balance.total == expected_total
+            && balance.available == expected_total
+            && balance.locked == 0;
+
+        if ok {
+            info!(
+                "Sender {idx} ({}): PASS outs={outs} total={}",
+                sender.address, balance.total
+            );
+        } else {
+            failures += 1;
+            error!(
+                "Sender {idx} ({}): FAIL outs={outs}",
+                sender.address
+            );
+            error!(
+                "  got total={} locked={} avail={}; want total={expected_total} locked=0 avail={expected_total}",
+                balance.total, balance.locked, balance.available
+            );
+        }
+    }
+
+    for (idx, recipient) in recipients.iter().enumerate().take(validate_recipients) {
+        let ins = recipient_ins[idx];
+        let expected_total = ins.saturating_mul(transfer_amount);
+        let balance = query_token_balance(client, token_contract, *recipient).await?;
+        let ok = balance.total == expected_total
+            && balance.available == expected_total
+            && balance.locked == 0;
+
+        if ok {
+            info!(
+                "Recipient {idx} ({}): PASS ins={ins} total={}",
+                recipient, balance.total
+            );
+        } else {
+            failures += 1;
+            error!(
+                "Recipient {idx} ({}): FAIL ins={ins}",
+                recipient
+            );
+            error!(
+                "  got total={} locked={} avail={}; want total={expected_total} locked=0 avail={expected_total}",
+                balance.total, balance.locked, balance.available
+            );
+        }
+    }
+
+    if failures > 0 {
+        return Err(format!(
+            "{failures} accounts failed burst transfer balance check"
+        ));
+    }
+    Ok(())
 }
 
 fn measure_transfer_tx_size(
@@ -619,6 +777,26 @@ async fn main() -> Result<(), String> {
         "Final transaction status: {}",
         if final_tx_success { "SUCCESS" } else { "FAILED (measurement still valid)" }
     );
+
+    info!(
+        "Validating transfer balances for first {} senders and first {} recipients via get_balance...",
+        VALIDATE_SENDERS,
+        VALIDATE_RECIPIENTS
+    );
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    validate_burst_transfer_balances(
+        &client,
+        token_contract,
+        senders.as_ref(),
+        recipients.as_ref(),
+        total_tx,
+        fund_amount,
+        cli.transfer_amount,
+        cli.tasks,
+        final_tx_success,
+    )
+    .await?;
+
     info!("Total transactions sent: {}", total_tx);
     info!("Actual completion time: {:.2} seconds", actual_completion_time.as_secs_f64());
     info!("Actual tps: {:.1} tx/s", actual_throughput);
