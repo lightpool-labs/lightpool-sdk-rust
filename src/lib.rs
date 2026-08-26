@@ -29,7 +29,9 @@ pub use ws::message::{Subscription, Message};
 pub use lightpool_types::{
     Address, ContractAddress, Module, ObjectID, Transaction, VerifiedTransaction,
     TransactionEvent, EventType, EventData, ExecutionStatus,
-    TransactionEffect, Action, Digest, PublicKey, SecretKey, Signature,
+    TransactionEffect, Action, AuthScheme, Digest, PublicKey, SecretKey, Signature,
+    LIGHTPOOL_EIP712_CHAIN_ID, LIGHTPOOL_EIP712_NAME, LIGHTPOOL_EIP712_VERIFYING_CONTRACT,
+    LIGHTPOOL_EIP712_VERSION,
     CreateTokenParams, MintParams, TransferParams,
     TOKEN_DECIMALS, TOKEN_SCALE,
     token_module_contract, token_contract, increment_object_id,

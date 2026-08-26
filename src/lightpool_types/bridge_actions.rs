@@ -40,8 +40,6 @@ pub struct InitBridgeConfigParams {
     pub evm_token: [u8; 20],
     pub name: CompactString,
     pub symbol: CompactString,
-    pub epoch: u64,
-    pub authorities: Vec<BridgeAuthority>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
