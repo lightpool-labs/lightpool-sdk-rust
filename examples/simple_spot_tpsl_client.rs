@@ -446,6 +446,7 @@ async fn create_market(
         limit_order: true,
         side_book_size: SegmentSize::Large,
         creator,
+        access: Default::default(),
     };
     let action = ActionBuilder::create_market(params)?;
     let tx = TransactionBuilder::new()

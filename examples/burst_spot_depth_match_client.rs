@@ -418,6 +418,7 @@ async fn create_markets_batch(
             limit_order: true,
             side_book_size: SegmentSize::Middle,
             creator: sender_address,
+        access: Default::default(),
         };
 
         let market_create_action = ActionBuilder::create_market(market_create_params)

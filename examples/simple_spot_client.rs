@@ -152,6 +152,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         limit_order: true,
         side_book_size: SegmentSize::Large,
         creator: trader1_address,
+        access: Default::default(),
     };
 
     let market_create_action = ActionBuilder::create_market(market_create_params)?;

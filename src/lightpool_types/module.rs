@@ -17,6 +17,8 @@ impl Module {
     pub const VAULT: Module = Module(0x05);
     pub const BRIDGE: Module = Module(0x06);
     pub const MARGIN: Module = Module(0x07);
+    pub const OUTBOUND_BRIDGE: Module = Module(0x08);
+    pub const OPERATOR: Module = Module(0x09);
 
     pub const fn new(value: u8) -> Self {
         Self(value)

@@ -17,10 +17,10 @@ use crate::lightpool_types::{
     SetVaultAllowDepositParams, CloseVaultParams,
     CreatePoolParams, SupplyParams, WithdrawSupplyParams, CreateMarginParams,
     DepositCollateralParams, WithdrawCollateralParams, BorrowParams, RepayParams, LiquidateParams,
-    InitBridgeConfigParams, ConfirmDepositParams, BridgeWithdrawParams, SetAgentParams,
+    CreateInboundBridgeParams, ConfirmDepositParams, BridgeWithdrawParams, SetAgentParams,
     token_module_contract, spot_module_contract, event_contract_module_contract,
     staking_module_contract, vault_module_contract, margin_module_contract,
-    bridge_module_contract, account_module_contract,
+    bridge_module_contract, default_inbound_bridge_instance, account_module_contract,
 };
 use crate::lightpool_types::call::{
     GetMarketInfoParams, GetOrderBookParams, GetTokenInfoParams, GetBalanceParams,
@@ -498,28 +498,34 @@ impl ActionBuilder {
         ))
     }
 
-    pub fn init_bridge_config(params: InitBridgeConfigParams) -> SdkResult<Action> {
+    pub fn create_inbound_bridge(params: CreateInboundBridgeParams) -> SdkResult<Action> {
         let serialized_params = bincode::serialize(&params)?;
         Ok(Action::new(
             bridge_module_contract(),
-            INIT_CONFIG_ACTION,
+            CREATE_ACTION,
             serialized_params,
         ))
     }
 
-    pub fn confirm_bridge_deposit(params: ConfirmDepositParams) -> SdkResult<Action> {
+    pub fn confirm_bridge_deposit(
+        bridge: ContractAddress,
+        params: ConfirmDepositParams,
+    ) -> SdkResult<Action> {
         let serialized_params = bincode::serialize(&params)?;
         Ok(Action::new(
-            bridge_module_contract(),
+            bridge,
             BRIDGE_CONFIRM_DEP_ACTION,
             serialized_params,
         ))
     }
 
-    pub fn bridge_withdraw(params: BridgeWithdrawParams) -> SdkResult<Action> {
+    pub fn bridge_withdraw(
+        bridge: ContractAddress,
+        params: BridgeWithdrawParams,
+    ) -> SdkResult<Action> {
         let serialized_params = bincode::serialize(&params)?;
         Ok(Action::new(
-            bridge_module_contract(),
+            bridge,
             BRIDGE_WITHDRAW_ACTION,
             serialized_params,
         ))

@@ -193,6 +193,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         limit_order: true,
         side_book_size: SegmentSize::Large,
         creator: lender,
+        access: Default::default(),
     })?;
     let market_create_tx = TransactionBuilder::new()
         .sender(lender)

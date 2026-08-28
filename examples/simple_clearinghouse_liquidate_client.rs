@@ -359,6 +359,7 @@ async fn main() -> Result<(), String> {
         limit_order: true,
         side_book_size: SegmentSize::Large,
         creator: lender.address(),
+        access: Default::default(),
     })
     .map_err(|e| e.to_string())?;
     let market_receipt =

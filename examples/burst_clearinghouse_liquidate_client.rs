@@ -898,6 +898,7 @@ async fn setup_positions_mempool_burst(
         limit_order: true,
         side_book_size: SegmentSize::Large,
         creator: lender.address(),
+        access: Default::default(),
     })
     .map_err(|e| e.to_string())?;
     let probe_receipt = submit_ok(
@@ -934,6 +935,7 @@ async fn setup_positions_mempool_burst(
                 limit_order: true,
                 side_book_size: SegmentSize::Large,
                 creator: lender.address(),
+            access: Default::default(),
             })
             .map_err(|e| e.to_string())?;
             sign_actions_tx(

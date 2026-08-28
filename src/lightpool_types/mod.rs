@@ -61,7 +61,7 @@ pub use spot_actions::{
     CreateMarketParams, UpdateMarketParams, ClaimMarketFeesParams, PlaceOrderParams,
     PlaceOrderGroupParams, AttachedTriggerParams, ParentOrderType,
     CancelOrderParams, UpdateOrderParams, OraclePriceUpdate, SubmitOraclePriceParams,
-    OrderSide, TimeInForce, OrderParamsType, MarketState, SegmentSize,
+    OrderSide, TimeInForce, OrderParamsType, MarketState, MarketAccess, SegmentSize,
     LimitOrderParams, TriggerOrderParams, MarketOrderParams, TriggerType,
 };
 pub use spot_helpers::{
@@ -97,9 +97,10 @@ pub use margin_helpers::{
 };
 pub use bridge_actions::{
     BridgeAuthority, BridgeDepositMessage, BridgeVote, BridgeWithdrawParams, ConfirmDepositParams,
-    InitBridgeConfigParams,
+    CreateInboundBridgeParams, CreateOutboundBridgeParams, RegisterInboundLaneParams,
+    RegisterOutboundLaneParams,
 };
-pub use bridge_helpers::bridge_module_contract;
+pub use bridge_helpers::{bridge_module_contract, default_inbound_bridge_instance};
 pub use account_actions::SetAgentParams;
 pub use account_helpers::account_module_contract;
 pub use order_id::{OrderId, parse_order_id};

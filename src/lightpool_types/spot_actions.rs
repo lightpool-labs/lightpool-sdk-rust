@@ -35,6 +35,14 @@ impl fmt::Display for MarketState {
     }
 }
 
+/// Spot market trading access control.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum MarketAccess {
+    #[default]
+    Open,
+    Restricted { operator: ContractAddress },
+}
+
 /// Preset skip-list depth for a side book.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SegmentSize {
@@ -72,6 +80,8 @@ pub struct CreateMarketParams {
     pub limit_order: bool,
     pub side_book_size: SegmentSize,
     pub creator: Address,
+    #[serde(default)]
+    pub access: MarketAccess,
 }
 
 /// Market update parameters

@@ -22,11 +22,12 @@ pub struct BridgeVote {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BridgeDepositMessage {
+    pub lane_index: u32,
     pub message_id: u64,
     pub source_chain_id: u64,
     pub token: ContractAddress,
     pub amount: u64,
-    pub sender_evm: [u8; 20],
+    pub sender_foreign: [u8; 20],
     pub recipient: Address,
     pub source_tx_hash: [u8; 32],
     pub source_block: u64,
@@ -34,12 +35,21 @@ pub struct BridgeDepositMessage {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InitBridgeConfigParams {
-    pub evm_chain_id: u64,
-    /// ERC20 token address on the source EVM chain (e.g. USDT).
-    pub evm_token: [u8; 20],
+pub struct RegisterInboundLaneParams {
+    pub foreign_token: [u8; 20],
     pub name: CompactString,
     pub symbol: CompactString,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateInboundBridgeParams {
+    pub foreign_chain_id: u64,
+    #[serde(default)]
+    pub epoch: u64,
+    #[serde(default)]
+    pub authorities: Option<Vec<BridgeAuthority>>,
+    #[serde(default)]
+    pub first_lane: Option<RegisterInboundLaneParams>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,5 +62,20 @@ pub struct ConfirmDepositParams {
 pub struct BridgeWithdrawParams {
     pub token: ContractAddress,
     pub amount: u64,
-    pub evm_recipient: [u8; 20],
+    pub foreign_recipient: [u8; 20],
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegisterOutboundLaneParams {
+    pub token: ContractAddress,
+    pub foreign_token: [u8; 20],
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateOutboundBridgeParams {
+    pub foreign_chain_id: u64,
+    pub epoch: u64,
+    pub authorities: Vec<BridgeAuthority>,
+    #[serde(default)]
+    pub first_lane: Option<RegisterOutboundLaneParams>,
 }
