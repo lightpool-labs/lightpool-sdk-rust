@@ -728,6 +728,10 @@ async fn main() -> Result<(), String> {
         "Final transaction status: {}",
         if final_tx_success { "SUCCESS" } else { "FAILED (measurement still valid)" }
     );
+    info!("Total transactions sent: {}", total_tx);
+    info!("Actual completion time: {:.2} seconds", actual_completion_time.as_secs_f64());
+    info!("Actual tps: {:.1} tx/s", actual_throughput);
+    info!("Baseline Latency: {:.3} seconds", baseline_latency.as_secs_f64());
 
     info!(
         "Validating transfer balances for first {} senders via get_balance...",
@@ -745,11 +749,6 @@ async fn main() -> Result<(), String> {
         final_tx_success,
     )
     .await?;
-
-    info!("Total transactions sent: {}", total_tx);
-    info!("Actual completion time: {:.2} seconds", actual_completion_time.as_secs_f64());
-    info!("Actual tps: {:.1} tx/s", actual_throughput);
-    info!("Baseline Latency: {:.3} seconds", baseline_latency.as_secs_f64());
 
     Ok(())
 }
