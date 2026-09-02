@@ -6,6 +6,8 @@ Rust SDK for interacting with the LightPool blockchain.
 
 ![LightPool SDK architecture](doc/arch.jpg)
 
+Application => index => sdk => node
+
 ## Prerequisites
 
 Start a LightPool node (examples connect to `http://localhost:26300`).
