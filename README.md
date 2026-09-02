@@ -6,7 +6,7 @@ Rust SDK for interacting with the LightPool blockchain.
 
 ![LightPool SDK architecture](doc/arch.jpg)
 
-Application => index => sdk => node
+Applications => index => sdk => node
 
 ## Prerequisites
 
