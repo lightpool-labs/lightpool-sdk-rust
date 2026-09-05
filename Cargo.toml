@@ -3,6 +3,7 @@ name = "lightpool-sdk"
 version = "0.4.0"
 authors = ["xiaoyu1998 (with AI assistance)"]
 edition = "2021"
+license = "MIT"
 description = "SDK for LightPool blockchain"
 
 [features]
