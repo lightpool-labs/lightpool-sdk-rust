@@ -262,6 +262,7 @@ async fn drive_tip_to_checkpoint(
         let action = ActionBuilder::place_order(
             market,
             PlaceOrderParams {
+                cloid: None,
                 side: OrderSide::Sell,
                 amount: MIN_ORDER_SIZE,
                 order_type: OrderParamsType::Limit {
@@ -434,6 +435,7 @@ async fn main() -> Result<(), String> {
     let sell = ActionBuilder::place_order(
         market,
         PlaceOrderParams {
+            cloid: None,
             side: OrderSide::Sell,
             amount: TRADE_AMOUNT,
             order_type: OrderParamsType::Limit {
@@ -449,6 +451,7 @@ async fn main() -> Result<(), String> {
     let buy = ActionBuilder::place_order(
         market,
         PlaceOrderParams {
+            cloid: None,
             side: OrderSide::Buy,
             amount: TRADE_AMOUNT,
             order_type: OrderParamsType::Limit {
@@ -473,6 +476,7 @@ async fn main() -> Result<(), String> {
     let bid = ActionBuilder::place_order(
         market,
         PlaceOrderParams {
+            cloid: None,
             side: OrderSide::Buy,
             amount: TRADE_AMOUNT,
             order_type: OrderParamsType::Limit {

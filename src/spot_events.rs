@@ -69,6 +69,7 @@ pub struct OrderCreatedEvent {
     pub creator: Address,
     pub market: Address,
     pub order_type: OrderEventType,
+    pub cloid: Option<String>,
 }
 
 /// Market order executed event structure
@@ -93,6 +94,7 @@ pub struct OrderFilledEvent {
     pub is_fully_filled: bool,
     pub market: Address,
     pub fee: u64,
+    pub cloid: Option<String>,
 }
 
 /// Market fees claimed by creator
@@ -112,6 +114,7 @@ pub struct OrderCancelledEvent {
     pub price: u64,
     pub cancelled_amount: u64,
     pub reason: String,
+    pub cloid: Option<String>,
 }
 
 /// Order updated event structure
@@ -123,6 +126,7 @@ pub struct OrderUpdatedEvent {
     pub old_amount: u64,
     pub new_amount: u64,
     pub remaining_amount: u64,
+    pub cloid: Option<String>,
 }
 
 /// Trigger order activated event structure
@@ -166,15 +170,29 @@ pub fn extract_market_address_from_events(receipt: &TransactionReceipt) -> Optio
     None
 }
 
-/// Extract order_id from transaction events
+/// Extract order_id from transaction events.
+/// Prefers `order_created` (resting). If the place fully matched, only
+/// `order_filled` events exist — the first fill is the taker (new order).
 pub fn extract_order_id_from_events(receipt: &TransactionReceipt) -> Option<OrderId> {
+    let mut taker_from_fill: Option<OrderId> = None;
     for event in &receipt.events {
         if let EventType::Call(action_name) = &event.event_type {
             match action_name.as_str() {
                 "order_created" => {
                     if let EventData::Bytes(data) = &event.data {
-                        if let Ok(order_created_event) = bincode::deserialize::<OrderCreatedEvent>(data) {
+                        if let Ok(order_created_event) =
+                            bincode::deserialize::<OrderCreatedEvent>(data)
+                        {
                             return Some(order_created_event.order_id);
+                        }
+                    }
+                }
+                "order_filled" => {
+                    if taker_from_fill.is_none() {
+                        if let EventData::Bytes(data) = &event.data {
+                            if let Ok(fill) = bincode::deserialize::<OrderFilledEvent>(data) {
+                                taker_from_fill = Some(fill.order_id);
+                            }
                         }
                     }
                 }
@@ -182,7 +200,23 @@ pub fn extract_order_id_from_events(receipt: &TransactionReceipt) -> Option<Orde
             }
         }
     }
-    None
+    taker_from_fill
+}
+
+/// True when place succeeded with fills only (no resting `order_created`).
+pub fn place_order_fully_matched(receipt: &TransactionReceipt) -> bool {
+    let mut saw_created = false;
+    let mut saw_fill = false;
+    for event in &receipt.events {
+        if let EventType::Call(action_name) = &event.event_type {
+            match action_name.as_str() {
+                "order_created" => saw_created = true,
+                "order_filled" => saw_fill = true,
+                _ => {}
+            }
+        }
+    }
+    !saw_created && saw_fill
 }
 
 /// Human readable event data

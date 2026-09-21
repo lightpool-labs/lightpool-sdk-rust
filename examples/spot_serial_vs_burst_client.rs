@@ -418,6 +418,7 @@ async fn probe_place_order_rpc(
     order_amount: u64,
 ) -> Result<(), String> {
     let order_params = PlaceOrderParams {
+        cloid: None,
         side: OrderSide::Sell,
         amount: order_amount,
         order_type: OrderParamsType::Limit {
@@ -476,6 +477,7 @@ async fn run_serial(
 
     for order_index in 0..orders_per_market {
         let order_params = PlaceOrderParams {
+            cloid: None,
             side: OrderSide::Sell,
             amount: order_amount,
             order_type: OrderParamsType::Limit {
@@ -614,6 +616,7 @@ async fn burst_place_order_task(
         let market = &markets[sender.market_index];
 
         let order_params = PlaceOrderParams {
+            cloid: None,
             side: OrderSide::Sell,
             amount: order_amount,
             order_type: OrderParamsType::Limit {

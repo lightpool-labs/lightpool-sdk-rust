@@ -144,6 +144,7 @@ pub struct PlaceOrderParams {
     pub order_type: OrderParamsType,
     pub limit_price: u64,
     pub token_address: ContractAddress,
+    pub cloid: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -190,6 +190,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("------------------------------------------------");
 
     let sell_order_params = PlaceOrderParams {
+        cloid: None,
         side: OrderSide::Sell,
         amount: 5_000_000,
         order_type: OrderParamsType::Limit {
@@ -237,6 +238,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("----------------------------------------------------------");
 
     let market_buy_params = PlaceOrderParams {
+        cloid: None,
         side: OrderSide::Buy,
         amount: 2_000_000,
         order_type: OrderParamsType::Market {
@@ -278,6 +280,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("------------------------------------------------------");
 
     let buy_order_params = PlaceOrderParams {
+        cloid: None,
         side: OrderSide::Buy,
         amount: 2_000_000,
         order_type: OrderParamsType::Limit {

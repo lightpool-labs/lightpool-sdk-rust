@@ -339,6 +339,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sell_action = ActionBuilder::place_order(
         market,
         PlaceOrderParams {
+            cloid: None,
             side: OrderSide::Sell,
             amount: TRADE_AMOUNT,
             order_type: OrderParamsType::Limit {
@@ -373,6 +374,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let buy_action = ActionBuilder::place_order(
         market,
         PlaceOrderParams {
+            cloid: None,
             side: OrderSide::Buy,
             amount: TRADE_AMOUNT,
             order_type: OrderParamsType::Limit {
@@ -447,6 +449,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let crash_sell_action = ActionBuilder::place_order(
         market,
         PlaceOrderParams {
+            cloid: None,
             side: OrderSide::Sell,
             amount: CRASH_AMOUNT,
             order_type: OrderParamsType::Limit {
@@ -478,6 +481,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let crash_buy_action = ActionBuilder::place_order(
         market,
         PlaceOrderParams {
+            cloid: None,
             side: OrderSide::Buy,
             amount: CRASH_AMOUNT,
             order_type: OrderParamsType::Limit {

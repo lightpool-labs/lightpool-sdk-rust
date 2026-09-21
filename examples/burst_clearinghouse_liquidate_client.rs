@@ -330,6 +330,7 @@ fn is_market_burst_order(seq: u64) -> bool {
 
 fn burst_market_buy_params(market: &BurstMarketInfo, order_amount: u64) -> PlaceOrderParams {
     PlaceOrderParams {
+        cloid: None,
         side: OrderSide::Buy,
         amount: order_amount,
         order_type: OrderParamsType::Market {
@@ -342,6 +343,7 @@ fn burst_market_buy_params(market: &BurstMarketInfo, order_amount: u64) -> Place
 
 fn burst_limit_sell_params(market: &BurstMarketInfo, order_amount: u64) -> PlaceOrderParams {
     PlaceOrderParams {
+        cloid: None,
         side: OrderSide::Sell,
         amount: order_amount,
         order_type: OrderParamsType::Limit {
@@ -1107,6 +1109,7 @@ async fn setup_positions_mempool_burst(
             let sell = ActionBuilder::place_order(
                 markets[m],
                 PlaceOrderParams {
+                    cloid: None,
                     side: OrderSide::Sell,
                     amount: book_liquidity_base,
                     order_type: OrderParamsType::Limit {
@@ -1142,6 +1145,7 @@ async fn setup_positions_mempool_burst(
             let buy = ActionBuilder::place_order(
                 market_for(i),
                 PlaceOrderParams {
+                    cloid: None,
                     side: OrderSide::Buy,
                     amount: TRADE_AMOUNT,
                     order_type: OrderParamsType::Limit {
@@ -1177,6 +1181,7 @@ async fn setup_positions_mempool_burst(
                 let sell = ActionBuilder::place_order(
                     markets[m],
                     PlaceOrderParams {
+                        cloid: None,
                         side: OrderSide::Sell,
                         amount: burst_ask_base_per_market,
                         order_type: OrderParamsType::Limit {
@@ -1212,6 +1217,7 @@ async fn setup_positions_mempool_burst(
             let bid = ActionBuilder::place_order(
                 markets[m],
                 PlaceOrderParams {
+                    cloid: None,
                     side: OrderSide::Buy,
                     amount: book_liquidity_base,
                     order_type: OrderParamsType::Limit {

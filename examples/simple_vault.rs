@@ -270,6 +270,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nStep 7: Seller places resting sell order");
     println!("----------------------------------------");
     let sell_order_params = PlaceOrderParams {
+        cloid: None,
         side: OrderSide::Sell,
         amount: TRADE_AMOUNT,
         order_type: OrderParamsType::Limit {
@@ -308,6 +309,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nStep 8: Vault buys BTC (manager as vault agent)");
     println!("------------------------------------------------");
     let buy_order_params = PlaceOrderParams {
+        cloid: None,
         side: OrderSide::Buy,
         amount: TRADE_AMOUNT,
         order_type: OrderParamsType::Limit {

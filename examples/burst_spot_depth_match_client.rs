@@ -253,6 +253,7 @@ fn measure_place_order_tx_size(
     let sender_address = signer.address();
     
     let order_params = PlaceOrderParams {
+        cloid: None,
         side: OrderSide::Buy,
         amount: order_amount,
         order_type: OrderParamsType::Limit {
@@ -585,6 +586,7 @@ async fn burst_place_order_task(
         
         // Create order parameters with controlled price and size
         let order_params = PlaceOrderParams {
+            cloid: None,
             side,
             amount: order_amount,  // Fixed order size
             order_type: OrderParamsType::Limit {

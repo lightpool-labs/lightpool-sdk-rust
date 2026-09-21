@@ -123,6 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   Spot triggers are Sell-only; they rest in TpslBook (not CLOB).");
 
     let sl_trigger_params = PlaceOrderParams {
+        cloid: None,
         side: OrderSide::Sell,
         amount: ORDER_AMOUNT,
         order_type: OrderParamsType::Trigger {
@@ -166,6 +167,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("----------------------------------------------------");
 
     let tp_trigger_params = PlaceOrderParams {
+        cloid: None,
         side: OrderSide::Sell,
         amount: ORDER_AMOUNT,
         order_type: OrderParamsType::Trigger {
@@ -207,6 +209,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("-------------------------------------------------------");
 
     let ask_params = PlaceOrderParams {
+        cloid: None,
         side: OrderSide::Sell,
         amount: ORDER_AMOUNT,
         order_type: OrderParamsType::Limit {

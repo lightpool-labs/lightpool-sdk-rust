@@ -498,6 +498,7 @@ async fn burst_mixed_order_task(
         };
 
         let order_params = PlaceOrderParams {
+            cloid: None,
             side,
             amount: order_amount,
             order_type: OrderParamsType::Limit {
@@ -547,6 +548,7 @@ async fn probe_fill_order_rpc(
     order_amount: u64,
 ) -> Result<(bool, u64), String> {
     let order_params = PlaceOrderParams {
+        cloid: None,
         side: OrderSide::Buy,
         amount: order_amount,
         order_type: OrderParamsType::Limit {
