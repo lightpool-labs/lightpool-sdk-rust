@@ -14,13 +14,38 @@ use tokio_tungstenite::{
     connect_async_with_config, tungstenite::Message as WsMessage, MaybeTlsStream, WebSocketStream,
 };
 use url::Url;
+use base64;
 
 use crate::error::{SdkError, SdkResult};
+use crate::lightpool_types::block::ReceiptBlock;
 use crate::ws::message::{Message, Subscription};
 
 /// Allow large NewBlock payloads (full ReceiptBlock under load).
 const WS_MAX_MESSAGE_SIZE: usize = 256 << 20; // 256 MiB
 
+fn message_from_bincode_notification(result: &Value) -> Option<Message> {
+    let encoding = result.get("encoding").and_then(|v| v.as_str())?;
+    if encoding != "bincode" {
+        return None;
+    }
+    let kind = result.get("kind").and_then(|v| v.as_str())?;
+    let payload_b64 = result.get("payload_b64").and_then(|v| v.as_str())?;
+    let bytes = base64::decode(payload_b64).ok()?;
+    match kind {
+        "NewBlock" => bincode::deserialize::<ReceiptBlock>(&bytes)
+            .ok()
+            .map(Message::NewBlock),
+        "ReceiptBlock" => bincode::deserialize::<ReceiptBlock>(&bytes)
+            .ok()
+            .map(Message::ReceiptBlock),
+        _ => None,
+    }
+}
+
+fn message_from_legacy_json_notification(result: &Value) -> Option<Message> {
+    let data = result.get("data")?;
+    serde_json::from_value::<Message>(data.clone()).ok()
+}
 /// Client for interacting with the LightPool WebSocket API.
 pub struct WebSocketClient {
     endpoint: String,
@@ -174,19 +199,17 @@ impl WebSocketClient {
 
                         if let Some(params) = value.get("params") {
                             if let Some(result) = params.get("result") {
-                                if let Some(data) = result.get("data") {
-                                        if let Ok(msg) = serde_json::from_value::<Message>(data.clone())
-                                    {
-                                        if sender.send(msg).is_err() {
-                                            break;
-                                        }
-                                        continue;
-                                    } else {
-                                        warn!(
-                                            "Failed to parse WS Message data: {}",
-                                            data
-                                        );
+                                if let Some(msg) = message_from_bincode_notification(result)
+                                    .or_else(|| message_from_legacy_json_notification(result))
+                                {
+                                    if sender.send(msg).is_err() {
+                                        break;
                                     }
+                                    continue;
+                                }
+                                if result.get("data").is_some() || result.get("payload_b64").is_some()
+                                {
+                                    warn!("Failed to parse WS notification result: {result}");
                                 }
                             }
                         }

@@ -101,13 +101,17 @@ pub mod option_digest {
     pub fn deserialize<'de, D: Deserializer<'de>>(
         deserializer: D,
     ) -> Result<Option<Digest>, D::Error> {
-        let Some(raw) = Option::<HexOrBytes>::deserialize(deserializer)? else {
-            return Ok(None);
-        };
-        let bytes = raw.into_vec().map_err(serde::de::Error::custom)?;
-        Ok(Some(Digest::new(
-            bytes_to_array(&bytes).map_err(serde::de::Error::custom)?,
-        )))
+        if deserializer.is_human_readable() {
+            let Some(raw) = Option::<HexOrBytes>::deserialize(deserializer)? else {
+                return Ok(None);
+            };
+            let bytes = raw.into_vec().map_err(serde::de::Error::custom)?;
+            Ok(Some(Digest::new(
+                bytes_to_array(&bytes).map_err(serde::de::Error::custom)?,
+            )))
+        } else {
+            Ok(Option::<[u8; 32]>::deserialize(deserializer)?.map(Digest::new))
+        }
     }
 }
 
@@ -157,13 +161,20 @@ pub mod option_address {
     pub fn deserialize<'de, D: Deserializer<'de>>(
         deserializer: D,
     ) -> Result<Option<Address>, D::Error> {
-        let Some(raw) = Option::<HexOrBytes>::deserialize(deserializer)? else {
-            return Ok(None);
-        };
-        let bytes = raw.into_vec().map_err(serde::de::Error::custom)?;
-        Ok(Some(Address::new(
-            bytes_to_array(&bytes).map_err(serde::de::Error::custom)?,
-        )))
+        if deserializer.is_human_readable() {
+            let Some(raw) = Option::<HexOrBytes>::deserialize(deserializer)? else {
+                return Ok(None);
+            };
+            let bytes = raw.into_vec().map_err(serde::de::Error::custom)?;
+            Ok(Some(Address::new(
+                bytes_to_array(&bytes).map_err(serde::de::Error::custom)?,
+            )))
+        } else {
+            Ok(
+                Option::<[u8; Address::ADDRESS_LENGTH]>::deserialize(deserializer)?
+                    .map(Address::new),
+            )
+        }
     }
 }
 
@@ -186,12 +197,21 @@ pub mod option_contract {
     pub fn deserialize<'de, D: Deserializer<'de>>(
         deserializer: D,
     ) -> Result<Option<ContractAddress>, D::Error> {
-        let Some(raw) = Option::<HexOrBytes>::deserialize(deserializer)? else {
-            return Ok(None);
-        };
-        let bytes = raw.into_vec().map_err(serde::de::Error::custom)?;
-        Ok(Some(ContractAddress::from_bytes(
-            bytes_to_array(&bytes).map_err(serde::de::Error::custom)?,
-        )))
+        if deserializer.is_human_readable() {
+            let Some(raw) = Option::<HexOrBytes>::deserialize(deserializer)? else {
+                return Ok(None);
+            };
+            let bytes = raw.into_vec().map_err(serde::de::Error::custom)?;
+            Ok(Some(ContractAddress::from_bytes(
+                bytes_to_array(&bytes).map_err(serde::de::Error::custom)?,
+            )))
+        } else {
+            Ok(
+                Option::<[u8; ContractAddress::CONTRACT_ADDRESS_LENGTH]>::deserialize(
+                    deserializer,
+                )?
+                .map(ContractAddress::from_bytes),
+            )
+        }
     }
 }
