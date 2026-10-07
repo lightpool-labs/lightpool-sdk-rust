@@ -83,7 +83,7 @@ impl InfoClient {
     pub async fn subscribe(
         &mut self,
         subscription: Subscription,
-        sender: mpsc::UnboundedSender<Message>,
+        sender: mpsc::Sender<Message>,
     ) -> SdkResult<String> {
         // Connect if not already connected
         let mut ws_stream_guard = self.ws_stream.lock().await;
@@ -158,29 +158,26 @@ impl InfoClient {
     /// Handle incoming WebSocket messages
     async fn handle_messages(
         ws_stream: Arc<Mutex<Option<WebSocketStream<MaybeTlsStream<TcpStream>>>>>,
-        sender: mpsc::UnboundedSender<Message>,
+        sender: mpsc::Sender<Message>,
         mut id_sender: Option<oneshot::Sender<String>>,
         request_id: u64,
     ) {
         info!("request_id: {}", request_id);
 
         loop {
-            let mut ws_stream_guard = ws_stream.lock().await;
-            let ws_stream_ref = match ws_stream_guard.as_mut() {
-                Some(stream) => stream,
-                None => {
+            let next = {
+                let mut ws_stream_guard = ws_stream.lock().await;
+                let Some(ws_stream_ref) = ws_stream_guard.as_mut() else {
                     error!("WebSocket stream not available");
                     break;
-                }
+                };
+                ws_stream_ref.next().await
             };
-            
-            match ws_stream_ref.next().await {
+
+            match next {
                 Some(Ok(WsMessage::Text(text))) => {
-                    //info!("Received WebSocket message: {}", text);
-                    
                     match serde_json::from_str::<Value>(&text) {
                         Ok(value) => {
-                            // Handle subscription confirmation
                             if let Some(method) = value.get("method").and_then(|m| m.as_str()) {
                                 if method == "notifications" {
                                     if let Some(params) = value.get("params") {
@@ -196,13 +193,12 @@ impl InfoClient {
                                     }
                                 }
                             }
-                            
-                            // Handle subscription notifications
+
                             if let Some(params) = value.get("params") {
                                 if let Some(result) = params.get("result") {
                                     if let Some(data) = result.get("data") {
                                         if let Ok(msg) = serde_json::from_value::<Message>(data.clone()) {
-                                            if sender.send(msg).is_err() {
+                                            if sender.send(msg).await.is_err() {
                                                 error!("Failed to send WS notification");
                                                 break;
                                             }
@@ -211,13 +207,12 @@ impl InfoClient {
                                     }
                                 }
                             }
-                            
-                            // Handle error
+
                             if let Some(error) = value.get("error") {
                                 let code = error.get("code").and_then(|c| c.as_i64()).unwrap_or(-1);
                                 let message = error.get("message").and_then(|m| m.as_str()).unwrap_or("Unknown error");
                                 let msg = Message::Error(format!("{}: {}", code, message));
-                                if sender.send(msg).is_err() {
+                                if sender.send(msg).await.is_err() {
                                     error!("Failed to send error notification");
                                     break;
                                 }
@@ -231,16 +226,19 @@ impl InfoClient {
                 }
                 Some(Ok(WsMessage::Close(_))) => {
                     info!("WebSocket connection closed by server");
+                    let mut ws_stream_guard = ws_stream.lock().await;
                     *ws_stream_guard = None;
                     break;
                 }
                 Some(Err(e)) => {
                     error!("WebSocket error: {}", e);
+                    let mut ws_stream_guard = ws_stream.lock().await;
                     *ws_stream_guard = None;
                     break;
                 }
                 None => {
                     info!("WebSocket connection closed");
+                    let mut ws_stream_guard = ws_stream.lock().await;
                     *ws_stream_guard = None;
                     break;
                 }

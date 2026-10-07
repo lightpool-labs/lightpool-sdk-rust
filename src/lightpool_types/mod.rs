@@ -25,6 +25,10 @@ pub mod bridge_actions;
 pub mod bridge_helpers;
 pub mod account_actions;
 pub mod account_helpers;
+pub mod amm_actions;
+pub mod amm_helpers;
+pub mod whitelist_actions;
+pub mod whitelist_helpers;
 pub mod order_id;
 pub mod order_id_type;
 pub mod name_type;
@@ -103,6 +107,12 @@ pub use bridge_actions::{
 pub use bridge_helpers::{bridge_module_contract, default_inbound_bridge_instance};
 pub use account_actions::SetAgentParams;
 pub use account_helpers::account_module_contract;
+pub use amm_actions::{
+    AmmAddLiquidityParams, AmmCreatePoolParams, AmmRemoveLiquidityParams, AmmSwapParams,
+};
+pub use amm_helpers::amm_module_contract;
+pub use whitelist_actions::{CreateWhitelistParams, WhitelistAddParams, WhitelistRemoveParams};
+pub use whitelist_helpers::whitelist_module_contract;
 pub use order_id::{OrderId, parse_order_id};
 pub use order_id_type::OrderIdType;
 pub use name_type::Name;
@@ -156,3 +166,10 @@ pub const BRIDGE_CONFIRM_DEP_ACTION: Name = name!("confirm_dep");
 pub const BRIDGE_WITHDRAW_ACTION: Name = name!("withdraw");
 pub const BRIDGE_REFUND_WD_ACTION: Name = name!("refund_wd");
 pub const SET_AGENT_ACTION: Name = name!("set_agent");
+pub const AMM_CREATE_POOL_ACTION: Name = name!("create_pool");
+pub const AMM_ADD_LIQ_ACTION: Name = name!("add_liq");
+pub const AMM_REMOVE_LIQ_ACTION: Name = name!("remove_liq");
+pub const AMM_SWAP_ACTION: Name = name!("swap");
+pub const WHITELIST_CREATE_ACTION: Name = name!("create");
+pub const WHITELIST_ADD_ACTION: Name = name!("wl_add");
+pub const WHITELIST_REMOVE_ACTION: Name = name!("wl_remove");

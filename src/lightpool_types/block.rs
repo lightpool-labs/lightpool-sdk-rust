@@ -18,6 +18,9 @@ pub struct ReceiptBlock {
     /// Block-end clearinghouse outcomes (not per-tx events).
     #[serde(default)]
     pub clearinghouse_events: Vec<ClearingHouseEvent>,
+    /// Unix timestamp in seconds (proposal / block wall time).
+    #[serde(default)]
+    pub timestamp: u64,
 }
 
 #[derive(Deserialize)]
@@ -28,6 +31,8 @@ struct ReceiptBlockDe {
     transaction_outputs: Vec<TransactionResult>,
     #[serde(default)]
     clearinghouse_events: Vec<ClearingHouseEvent>,
+    #[serde(default)]
+    timestamp: u64,
 }
 
 impl<'de> Deserialize<'de> for ReceiptBlock {
@@ -38,6 +43,7 @@ impl<'de> Deserialize<'de> for ReceiptBlock {
             digest: block.digest,
             transaction_outputs: block.transaction_outputs,
             clearinghouse_events: block.clearinghouse_events,
+            timestamp: block.timestamp,
         })
     }
 }
@@ -54,7 +60,13 @@ impl ReceiptBlock {
             digest,
             transaction_outputs,
             clearinghouse_events: Vec::new(),
+            timestamp: 0,
         }
+    }
+
+    pub fn with_timestamp(mut self, timestamp: u64) -> Self {
+        self.timestamp = timestamp;
+        self
     }
 
     /// Get the block digest
@@ -70,6 +82,11 @@ impl ReceiptBlock {
     /// Get the block number
     pub fn block_num(&self) -> u64 {
         self.block_num
+    }
+
+    /// Unix timestamp in seconds.
+    pub fn timestamp(&self) -> u64 {
+        self.timestamp
     }
 
     /// Get the number of transactions in this block

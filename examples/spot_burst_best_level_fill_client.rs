@@ -295,6 +295,7 @@ async fn create_markets(
             }
 
             let market_create_params = CreateMarketParams {
+                whitelist: None,
                 name: format!("BestFillMarket{}", market_index + 1).into(),
                 base_token: tokens[base_index],
                 quote_token: tokens[quote_index],
@@ -498,6 +499,7 @@ async fn burst_mixed_order_task(
         };
 
         let order_params = PlaceOrderParams {
+            whitelist: None,
             cloid: None,
             side,
             amount: order_amount,
@@ -548,6 +550,7 @@ async fn probe_fill_order_rpc(
     order_amount: u64,
 ) -> Result<(bool, u64), String> {
     let order_params = PlaceOrderParams {
+        whitelist: None,
         cloid: None,
         side: OrderSide::Buy,
         amount: order_amount,

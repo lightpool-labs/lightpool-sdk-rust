@@ -142,6 +142,7 @@ fn is_market_burst_order(seq: u64) -> bool {
 
 fn burst_market_sell_params(market: &SpotMarketInfo, order_amount: u64) -> PlaceOrderParams {
     PlaceOrderParams {
+        whitelist: None,
         cloid: None,
         side: OrderSide::Sell,
         amount: order_amount,
@@ -155,6 +156,7 @@ fn burst_market_sell_params(market: &SpotMarketInfo, order_amount: u64) -> Place
 
 fn burst_limit_sell_params(market: &SpotMarketInfo, order_amount: u64) -> PlaceOrderParams {
     PlaceOrderParams {
+        whitelist: None,
         cloid: None,
         side: OrderSide::Sell,
         amount: order_amount,
@@ -541,6 +543,7 @@ async fn create_markets(
             }
 
             let market_create_params = CreateMarketParams {
+                whitelist: None,
                 name: format!("BurstMarket{}", market_index + 1).into(),
                 base_token: tokens[base_index],
                 quote_token: tokens[quote_index],
@@ -660,6 +663,7 @@ async fn seed_resting_bids(
     for (market_index, market) in markets.iter().enumerate() {
         let bid_base = bid_liquidity_base(cli, market_index);
         let order_params = PlaceOrderParams {
+            whitelist: None,
             cloid: None,
             side: OrderSide::Buy,
             amount: bid_base,

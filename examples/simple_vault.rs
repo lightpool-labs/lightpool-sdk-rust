@@ -227,6 +227,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nStep 6: Creating BTC/USDT spot market");
     println!("-------------------------------------");
     let market_create_params = CreateMarketParams {
+        whitelist: None,
         name: "BTC/USDT".into(),
         base_token: btc_token,
         quote_token: usdt_token,
@@ -270,6 +271,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nStep 7: Seller places resting sell order");
     println!("----------------------------------------");
     let sell_order_params = PlaceOrderParams {
+        whitelist: None,
         cloid: None,
         side: OrderSide::Sell,
         amount: TRADE_AMOUNT,
@@ -309,6 +311,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nStep 8: Vault buys BTC (manager as vault agent)");
     println!("------------------------------------------------");
     let buy_order_params = PlaceOrderParams {
+        whitelist: None,
         cloid: None,
         side: OrderSide::Buy,
         amount: TRADE_AMOUNT,

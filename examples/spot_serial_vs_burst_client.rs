@@ -276,6 +276,7 @@ async fn create_markets(
             let quote_index = base_index + 1;
 
             let market_create_params = CreateMarketParams {
+                whitelist: None,
                 name: format!("{}Market{}", prefix, market_index + 1).into(),
                 base_token: tokens[base_index],
                 quote_token: tokens[quote_index],
@@ -418,6 +419,7 @@ async fn probe_place_order_rpc(
     order_amount: u64,
 ) -> Result<(), String> {
     let order_params = PlaceOrderParams {
+        whitelist: None,
         cloid: None,
         side: OrderSide::Sell,
         amount: order_amount,
@@ -477,6 +479,7 @@ async fn run_serial(
 
     for order_index in 0..orders_per_market {
         let order_params = PlaceOrderParams {
+            whitelist: None,
             cloid: None,
             side: OrderSide::Sell,
             amount: order_amount,
@@ -616,6 +619,7 @@ async fn burst_place_order_task(
         let market = &markets[sender.market_index];
 
         let order_params = PlaceOrderParams {
+            whitelist: None,
             cloid: None,
             side: OrderSide::Sell,
             amount: order_amount,

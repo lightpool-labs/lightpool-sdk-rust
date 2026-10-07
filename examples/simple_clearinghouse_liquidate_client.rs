@@ -262,6 +262,7 @@ async fn drive_tip_to_checkpoint(
         let action = ActionBuilder::place_order(
             market,
             PlaceOrderParams {
+                whitelist: None,
                 cloid: None,
                 side: OrderSide::Sell,
                 amount: MIN_ORDER_SIZE,
@@ -348,6 +349,7 @@ async fn main() -> Result<(), String> {
     submit_ok(&client, &lender, lender.address(), None, vec![supply]).await?;
 
     let market_action = ActionBuilder::create_market(CreateMarketParams {
+        whitelist: None,
         name: "BTC/USDT".into(),
         base_token: btc,
         quote_token: usdt,
@@ -435,6 +437,7 @@ async fn main() -> Result<(), String> {
     let sell = ActionBuilder::place_order(
         market,
         PlaceOrderParams {
+            whitelist: None,
             cloid: None,
             side: OrderSide::Sell,
             amount: TRADE_AMOUNT,
@@ -451,6 +454,7 @@ async fn main() -> Result<(), String> {
     let buy = ActionBuilder::place_order(
         market,
         PlaceOrderParams {
+            whitelist: None,
             cloid: None,
             side: OrderSide::Buy,
             amount: TRADE_AMOUNT,
@@ -476,6 +480,7 @@ async fn main() -> Result<(), String> {
     let bid = ActionBuilder::place_order(
         market,
         PlaceOrderParams {
+            whitelist: None,
             cloid: None,
             side: OrderSide::Buy,
             amount: TRADE_AMOUNT,
@@ -516,7 +521,7 @@ async fn main() -> Result<(), String> {
                     return;
                 }
             };
-            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+            let (tx, mut rx) = tokio::sync::mpsc::channel(128);
             if let Err(e) = ws.subscribe(Subscription::NewBlocks, tx).await {
                 warn!("subscribe NewBlocks failed: {e}");
                 return;

@@ -100,7 +100,7 @@ impl WebSocketClient {
     pub async fn subscribe(
         &mut self,
         subscription: Subscription,
-        sender: mpsc::UnboundedSender<Message>,
+        sender: mpsc::Sender<Message>,
     ) -> SdkResult<String> {
         let mut ws_stream_guard = self.ws_stream.lock().await;
         if ws_stream_guard.is_none() {
@@ -164,20 +164,22 @@ impl WebSocketClient {
 
     async fn handle_messages(
         ws_stream: Arc<Mutex<Option<WebSocketStream<MaybeTlsStream<TcpStream>>>>>,
-        sender: mpsc::UnboundedSender<Message>,
+        sender: mpsc::Sender<Message>,
         mut id_sender: Option<oneshot::Sender<String>>,
     ) {
         loop {
-            let mut ws_stream_guard = ws_stream.lock().await;
-            let ws_stream_ref = match ws_stream_guard.as_mut() {
-                Some(stream) => stream,
-                None => {
+            // Keep the lock only for the WS read so backpressure on `sender`
+            // does not stall the mutex (and still pauses further reads).
+            let next = {
+                let mut ws_stream_guard = ws_stream.lock().await;
+                let Some(ws_stream_ref) = ws_stream_guard.as_mut() else {
                     error!("WebSocket stream not available");
                     break;
-                }
+                };
+                ws_stream_ref.next().await
             };
 
-            match ws_stream_ref.next().await {
+            match next {
                 Some(Ok(WsMessage::Text(text))) => match serde_json::from_str::<Value>(&text) {
                     Ok(value) => {
                         if let Some(method) = value.get("method").and_then(|m| m.as_str()) {
@@ -202,7 +204,7 @@ impl WebSocketClient {
                                 if let Some(msg) = message_from_bincode_notification(result)
                                     .or_else(|| message_from_legacy_json_notification(result))
                                 {
-                                    if sender.send(msg).is_err() {
+                                    if sender.send(msg).await.is_err() {
                                         break;
                                     }
                                     continue;
@@ -224,7 +226,7 @@ impl WebSocketClient {
                                 .and_then(|m| m.as_str())
                                 .unwrap_or("Unknown error");
                             let msg = Message::Error(format!("{}: {}", code, message));
-                            if sender.send(msg).is_err() {
+                            if sender.send(msg).await.is_err() {
                                 error!("Failed to send error notification");
                                 break;
                             }
@@ -236,16 +238,19 @@ impl WebSocketClient {
                 },
                 Some(Ok(WsMessage::Close(_))) => {
                     info!("WebSocket connection closed by server");
+                    let mut ws_stream_guard = ws_stream.lock().await;
                     *ws_stream_guard = None;
                     break;
                 }
                 Some(Err(e)) => {
                     error!("WebSocket error: {}", e);
+                    let mut ws_stream_guard = ws_stream.lock().await;
                     *ws_stream_guard = None;
                     break;
                 }
                 None => {
                     info!("WebSocket connection closed");
+                    let mut ws_stream_guard = ws_stream.lock().await;
                     *ws_stream_guard = None;
                     break;
                 }

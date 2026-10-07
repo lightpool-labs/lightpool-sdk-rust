@@ -253,6 +253,7 @@ fn measure_place_order_tx_size(
     let sender_address = signer.address();
     
     let order_params = PlaceOrderParams {
+        whitelist: None,
         cloid: None,
         side: OrderSide::Buy,
         amount: order_amount,
@@ -407,6 +408,7 @@ async fn create_markets_batch(
         let min_order_size = 100_000; // 0.1 base token minimum
         
         let market_create_params = CreateMarketParams {
+            whitelist: None,
             name: format!("Market{}/Market{}", token1_index + 1, token2_index + 1).into(),
             base_token: base_token_address,
             quote_token: quote_token_address,
@@ -586,6 +588,7 @@ async fn burst_place_order_task(
         
         // Create order parameters with controlled price and size
         let order_params = PlaceOrderParams {
+            whitelist: None,
             cloid: None,
             side,
             amount: order_amount,  // Fixed order size

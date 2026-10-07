@@ -181,6 +181,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nStep 6: Creating BTC/USDT market");
     println!("--------------------------------");
     let market_create_action = ActionBuilder::create_market(CreateMarketParams {
+        whitelist: None,
         name: "BTC/USDT".into(),
         base_token: btc,
         quote_token: usdt,
@@ -339,6 +340,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sell_action = ActionBuilder::place_order(
         market,
         PlaceOrderParams {
+            whitelist: None,
             cloid: None,
             side: OrderSide::Sell,
             amount: TRADE_AMOUNT,
@@ -374,6 +376,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let buy_action = ActionBuilder::place_order(
         market,
         PlaceOrderParams {
+            whitelist: None,
             cloid: None,
             side: OrderSide::Buy,
             amount: TRADE_AMOUNT,
@@ -449,6 +452,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let crash_sell_action = ActionBuilder::place_order(
         market,
         PlaceOrderParams {
+            whitelist: None,
             cloid: None,
             side: OrderSide::Sell,
             amount: CRASH_AMOUNT,
@@ -481,6 +485,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let crash_buy_action = ActionBuilder::place_order(
         market,
         PlaceOrderParams {
+            whitelist: None,
             cloid: None,
             side: OrderSide::Buy,
             amount: CRASH_AMOUNT,

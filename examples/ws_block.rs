@@ -4,7 +4,7 @@
 use env_logger::Env;
 use lightpool_sdk::{Message, Subscription, WebSocketClient};
 use log::{error, info, warn};
-use tokio::sync::mpsc::unbounded_channel;
+use tokio::sync::mpsc;
 
 #[tokio::main]
 async fn main() {
@@ -19,7 +19,7 @@ async fn main() {
         }
     };
 
-    let (sender, mut receiver) = unbounded_channel();
+    let (sender, mut receiver) = mpsc::channel(128);
 
     let subscription_id = ws_client
         .subscribe(Subscription::NewBlocks, sender)

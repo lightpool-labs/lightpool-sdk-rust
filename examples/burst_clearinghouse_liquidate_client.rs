@@ -330,6 +330,7 @@ fn is_market_burst_order(seq: u64) -> bool {
 
 fn burst_market_buy_params(market: &BurstMarketInfo, order_amount: u64) -> PlaceOrderParams {
     PlaceOrderParams {
+        whitelist: None,
         cloid: None,
         side: OrderSide::Buy,
         amount: order_amount,
@@ -343,6 +344,7 @@ fn burst_market_buy_params(market: &BurstMarketInfo, order_amount: u64) -> Place
 
 fn burst_limit_sell_params(market: &BurstMarketInfo, order_amount: u64) -> PlaceOrderParams {
     PlaceOrderParams {
+        whitelist: None,
         cloid: None,
         side: OrderSide::Sell,
         amount: order_amount,
@@ -888,6 +890,7 @@ async fn setup_positions_mempool_burst(
 
     // Probe first market index via RPC.
     let probe_market_action = ActionBuilder::create_market(CreateMarketParams {
+        whitelist: None,
         name: "LiqMktProbe".into(),
         base_token: btc,
         quote_token: usdt,
@@ -925,6 +928,7 @@ async fn setup_positions_mempool_burst(
         &mut expiration,
         |j, exp| {
             let action = ActionBuilder::create_market(CreateMarketParams {
+                whitelist: None,
                 name: format!("LiqMkt{}", j + 2).into(),
                 base_token: btc,
                 quote_token: usdt,
@@ -1109,6 +1113,7 @@ async fn setup_positions_mempool_burst(
             let sell = ActionBuilder::place_order(
                 markets[m],
                 PlaceOrderParams {
+                    whitelist: None,
                     cloid: None,
                     side: OrderSide::Sell,
                     amount: book_liquidity_base,
@@ -1145,6 +1150,7 @@ async fn setup_positions_mempool_burst(
             let buy = ActionBuilder::place_order(
                 market_for(i),
                 PlaceOrderParams {
+                    whitelist: None,
                     cloid: None,
                     side: OrderSide::Buy,
                     amount: TRADE_AMOUNT,
@@ -1181,6 +1187,7 @@ async fn setup_positions_mempool_burst(
                 let sell = ActionBuilder::place_order(
                     markets[m],
                     PlaceOrderParams {
+                        whitelist: None,
                         cloid: None,
                         side: OrderSide::Sell,
                         amount: burst_ask_base_per_market,
@@ -1217,6 +1224,7 @@ async fn setup_positions_mempool_burst(
             let bid = ActionBuilder::place_order(
                 markets[m],
                 PlaceOrderParams {
+                    whitelist: None,
                     cloid: None,
                     side: OrderSide::Buy,
                     amount: book_liquidity_base,

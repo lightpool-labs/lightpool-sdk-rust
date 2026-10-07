@@ -80,8 +80,8 @@ pub struct CreateMarketParams {
     pub limit_order: bool,
     pub side_book_size: SegmentSize,
     pub creator: Address,
-    #[serde(default)]
     pub access: MarketAccess,
+    pub whitelist: Option<ContractAddress>,
 }
 
 /// Market update parameters
@@ -145,6 +145,7 @@ pub struct PlaceOrderParams {
     pub limit_price: u64,
     pub token_address: ContractAddress,
     pub cloid: Option<String>,
+    pub whitelist: Option<ContractAddress>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -170,6 +171,7 @@ pub struct PlaceOrderGroupParams {
     pub parent_type: ParentOrderType,
     pub tp: Option<AttachedTriggerParams>,
     pub sl: Option<AttachedTriggerParams>,
+    pub whitelist: Option<ContractAddress>,
 }
 
 /// Limit order parameters

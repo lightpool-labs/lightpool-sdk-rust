@@ -45,6 +45,7 @@ pub struct MintEventContractParams {
     pub collateral_token: ContractAddress,
     pub yes_token: ContractAddress,
     pub no_token: ContractAddress,
+    pub whitelist: Option<ContractAddress>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,6 +54,7 @@ pub struct BurnEventContractParams {
     pub collateral_token: ContractAddress,
     pub yes_token: ContractAddress,
     pub no_token: ContractAddress,
+    pub whitelist: Option<ContractAddress>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

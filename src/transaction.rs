@@ -21,6 +21,9 @@ use crate::lightpool_types::{
     token_module_contract, spot_module_contract, event_contract_module_contract,
     staking_module_contract, vault_module_contract, margin_module_contract,
     bridge_module_contract, default_inbound_bridge_instance, account_module_contract,
+    amm_module_contract, whitelist_module_contract,
+    AmmCreatePoolParams, AmmAddLiquidityParams, AmmRemoveLiquidityParams, AmmSwapParams,
+    CreateWhitelistParams, WhitelistAddParams, WhitelistRemoveParams,
 };
 use crate::lightpool_types::call::{
     GetMarketInfoParams, GetOrderBookParams, GetTokenInfoParams, GetBalanceParams,
@@ -40,6 +43,8 @@ use crate::lightpool_types::{
     MARGIN_CREATE_ACCOUNT_ACTION, MARGIN_DEPOSIT_ACTION, MARGIN_WITHDRAW_ACTION,
     MARGIN_BORROW_ACTION, MARGIN_REPAY_ACTION, MARGIN_LIQUIDATE_ACTION,
     BRIDGE_CONFIRM_DEP_ACTION, BRIDGE_WITHDRAW_ACTION, SET_AGENT_ACTION,
+    AMM_CREATE_POOL_ACTION, AMM_ADD_LIQ_ACTION, AMM_REMOVE_LIQ_ACTION, AMM_SWAP_ACTION,
+    WHITELIST_CREATE_ACTION, WHITELIST_ADD_ACTION, WHITELIST_REMOVE_ACTION,
 };
 use crate::crypto::Signer;
 use crate::error::{SdkError, SdkResult};
@@ -680,6 +685,61 @@ impl ActionBuilder {
             VAULT_PORTFOLIO_ACTION,
             serialized_params,
         ))
+    }
+
+    pub fn create_amm_pool(params: AmmCreatePoolParams) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            amm_module_contract(),
+            AMM_CREATE_POOL_ACTION,
+            serialized_params,
+        ))
+    }
+
+    pub fn add_amm_liquidity(
+        pool: ContractAddress,
+        params: AmmAddLiquidityParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(pool, AMM_ADD_LIQ_ACTION, serialized_params))
+    }
+
+    pub fn remove_amm_liquidity(
+        pool: ContractAddress,
+        params: AmmRemoveLiquidityParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(pool, AMM_REMOVE_LIQ_ACTION, serialized_params))
+    }
+
+    pub fn swap_amm(pool: ContractAddress, params: AmmSwapParams) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(pool, AMM_SWAP_ACTION, serialized_params))
+    }
+
+    pub fn create_whitelist(params: CreateWhitelistParams) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            whitelist_module_contract(),
+            WHITELIST_CREATE_ACTION,
+            serialized_params,
+        ))
+    }
+
+    pub fn whitelist_add(
+        whitelist: ContractAddress,
+        params: WhitelistAddParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(whitelist, WHITELIST_ADD_ACTION, serialized_params))
+    }
+
+    pub fn whitelist_remove(
+        whitelist: ContractAddress,
+        params: WhitelistRemoveParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(whitelist, WHITELIST_REMOVE_ACTION, serialized_params))
     }
 
     pub fn custom_action(

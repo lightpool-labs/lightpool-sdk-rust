@@ -11,6 +11,7 @@ pub mod staking_events;
 pub mod vault_events;
 pub mod bridge_events;
 pub mod margin_events;
+pub mod amm_events;
 // pub mod perp_events;
 // pub mod spark_events;
 pub mod client;
@@ -60,6 +61,9 @@ pub use lightpool_types::{
     margin_module_contract, pool_contract, margin_account_contract, pool_account,
     margin_trading_account, TAG_POOL, TAG_ACCOUNT,
     bridge_module_contract, default_inbound_bridge_instance, account_module_contract,
+    amm_module_contract, AmmCreatePoolParams, AmmAddLiquidityParams, AmmRemoveLiquidityParams,
+    AmmSwapParams,
+    whitelist_module_contract, CreateWhitelistParams, WhitelistAddParams, WhitelistRemoveParams,
     OrderId, OrderIdType,
 };
 
@@ -73,6 +77,7 @@ pub use event_contract_events::*;
 pub use staking_events::*;
 pub use vault_events::*;
 pub use bridge_events::*;
+pub use amm_events::*;
 pub use types::{
     SubmitTransactionParams, SubmitTransactionResponse,
     RpcRequest, RpcResponse, RpcError,

@@ -140,6 +140,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("----------------------------------");
 
     let market_create_params = CreateMarketParams {
+        whitelist: None,
         name: "BTC/USDT".into(),
         base_token: btc_token_address,
         quote_token: usdt_token_address,
@@ -190,6 +191,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("------------------------------------------------");
 
     let sell_order_params = PlaceOrderParams {
+        whitelist: None,
         cloid: None,
         side: OrderSide::Sell,
         amount: 5_000_000,
@@ -238,6 +240,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("----------------------------------------------------------");
 
     let market_buy_params = PlaceOrderParams {
+        whitelist: None,
         cloid: None,
         side: OrderSide::Buy,
         amount: 2_000_000,
@@ -280,6 +283,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("------------------------------------------------------");
 
     let buy_order_params = PlaceOrderParams {
+        whitelist: None,
         cloid: None,
         side: OrderSide::Buy,
         amount: 2_000_000,

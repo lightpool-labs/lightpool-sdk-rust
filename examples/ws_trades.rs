@@ -6,7 +6,7 @@ use log::{info, error, warn};
 use lightpool_sdk::{InfoClient, Subscription, Message, Address};
 use tokio::{
     spawn,
-    sync::mpsc::unbounded_channel,
+    sync::mpsc,
     time::{sleep, Duration},
 };
 use std::str::FromStr;
@@ -26,7 +26,7 @@ async fn main() {
     };
 
     // Create a channel for receiving WebSocket messages
-    let (sender, mut receiver) = unbounded_channel();
+    let (sender, mut receiver) = mpsc::channel(128);
 
     let market_addr = match std::env::args().nth(1) {
         Some(s) => match Address::from_str(&s) {

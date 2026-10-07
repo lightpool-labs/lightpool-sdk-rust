@@ -123,6 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   Spot triggers are Sell-only; they rest in TpslBook (not CLOB).");
 
     let sl_trigger_params = PlaceOrderParams {
+        whitelist: None,
         cloid: None,
         side: OrderSide::Sell,
         amount: ORDER_AMOUNT,
@@ -167,6 +168,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("----------------------------------------------------");
 
     let tp_trigger_params = PlaceOrderParams {
+        whitelist: None,
         cloid: None,
         side: OrderSide::Sell,
         amount: ORDER_AMOUNT,
@@ -209,6 +211,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("-------------------------------------------------------");
 
     let ask_params = PlaceOrderParams {
+        whitelist: None,
         cloid: None,
         side: OrderSide::Sell,
         amount: ORDER_AMOUNT,
@@ -247,6 +250,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   OCO pair shares one base lock (TP holds the lock).");
 
     let group_params = PlaceOrderGroupParams {
+        whitelist: None,
         side: OrderSide::Buy,
         amount: ORDER_AMOUNT,
         limit_price: PARENT_PRICE,
@@ -437,6 +441,7 @@ async fn create_market(
     quote_token: ContractAddress,
 ) -> Result<ContractAddress, Box<dyn std::error::Error>> {
     let params = CreateMarketParams {
+        whitelist: None,
         name: "BTC/USDT".into(),
         base_token,
         quote_token,

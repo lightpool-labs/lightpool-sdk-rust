@@ -131,6 +131,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nStep 3: Minting complete set");
     println!("-----------------------------");
     let mint_params = MintEventContractParams {
+        whitelist: None,
         amount: MINT_AMOUNT,
         collateral_token: market_info.collateral_token,
         yes_token: market_info.yes_token,
@@ -174,6 +175,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nStep 4: Burning complete set");
     println!("-----------------------------");
     let burn_params = BurnEventContractParams {
+        whitelist: None,
         amount: BURN_AMOUNT,
         collateral_token: market_info.collateral_token,
         yes_token: market_info.yes_token,
