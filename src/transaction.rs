@@ -21,14 +21,21 @@ use crate::lightpool_types::{
     token_module_contract, spot_module_contract, event_contract_module_contract,
     staking_module_contract, vault_module_contract, margin_module_contract,
     bridge_module_contract, default_inbound_bridge_instance, account_module_contract,
-    amm_module_contract, whitelist_module_contract,
+    amm_module_contract, whitelist_module_contract, paper_module_contract,
     AmmCreatePoolParams, AmmAddLiquidityParams, AmmRemoveLiquidityParams, AmmSwapParams,
     CreateWhitelistParams, WhitelistAddParams, WhitelistRemoveParams,
+    PaperAddInstrumentParams, PaperClaimParams, PaperCloseParams, PaperCreateMarketParams,
+    PaperDepositParams, PaperHarvestParams, PaperLiquidateParams, PaperOpenParams,
+    PaperPushFeesParams, PaperSetInstrumentParams, PaperStakeParams, PaperUnstakeParams,
+    PaperWithdrawParams,
 };
 use crate::lightpool_types::call::{
     GetMarketInfoParams, GetOrderBookParams, GetTokenInfoParams, GetBalanceParams,
-    GetVaultPortfolioParams, MARKET_INFO_ACTION, ORDER_BOOK_ACTION, TOKEN_INFO_ACTION,
-    GET_BALANCE_ACTION, VAULT_PORTFOLIO_ACTION,
+    GetVaultPortfolioParams, GetPaperAccountParams, GetPaperLpParams, GetPaperMarketParams,
+    GetPaperPositionParams, GetPaperQueueParams, GetPaperStakeParams, MARKET_INFO_ACTION,
+    ORDER_BOOK_ACTION, TOKEN_INFO_ACTION, GET_BALANCE_ACTION, VAULT_PORTFOLIO_ACTION,
+    PAPER_GET_ACCOUNT_ACTION, PAPER_GET_LP_ACTION, PAPER_GET_MARKET_ACTION,
+    PAPER_GET_POSITION_ACTION, PAPER_GET_QUEUE_ACTION, PAPER_GET_STAKE_ACTION,
 };
 use crate::lightpool_types::{
     Name, CREATE_ACTION, MINT_ACTION, TRANSFER_ACTION,
@@ -45,6 +52,10 @@ use crate::lightpool_types::{
     BRIDGE_CONFIRM_DEP_ACTION, BRIDGE_WITHDRAW_ACTION, SET_AGENT_ACTION,
     AMM_CREATE_POOL_ACTION, AMM_ADD_LIQ_ACTION, AMM_REMOVE_LIQ_ACTION, AMM_SWAP_ACTION,
     WHITELIST_CREATE_ACTION, WHITELIST_ADD_ACTION, WHITELIST_REMOVE_ACTION,
+    PAPER_CREATE_ACTION, PAPER_ADD_INS_ACTION, PAPER_SET_INS_ACTION, PAPER_DEPOSIT_ACTION,
+    PAPER_WITHDRAW_ACTION, PAPER_OPEN_ACTION, PAPER_CLOSE_ACTION, PAPER_LIQUIDATE_ACTION,
+    PAPER_HARVEST_ACTION, PAPER_STAKE_ACTION, PAPER_UNSTAKE_ACTION, PAPER_CLAIM_ACTION,
+    PAPER_PUSH_FEES_ACTION,
 };
 use crate::crypto::Signer;
 use crate::error::{SdkError, SdkResult};
@@ -685,6 +696,148 @@ impl ActionBuilder {
             VAULT_PORTFOLIO_ACTION,
             serialized_params,
         ))
+    }
+
+    pub fn create_paper_market(params: PaperCreateMarketParams) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            paper_module_contract(),
+            PAPER_CREATE_ACTION,
+            serialized_params,
+        ))
+    }
+
+    pub fn add_paper_instrument(
+        market: ContractAddress,
+        params: PaperAddInstrumentParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(market, PAPER_ADD_INS_ACTION, serialized_params))
+    }
+
+    pub fn set_paper_instrument(
+        market: ContractAddress,
+        params: PaperSetInstrumentParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(market, PAPER_SET_INS_ACTION, serialized_params))
+    }
+
+    pub fn deposit_paper(
+        market: ContractAddress,
+        params: PaperDepositParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(market, PAPER_DEPOSIT_ACTION, serialized_params))
+    }
+
+    pub fn withdraw_paper(
+        market: ContractAddress,
+        params: PaperWithdrawParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(market, PAPER_WITHDRAW_ACTION, serialized_params))
+    }
+
+    pub fn open_paper(market: ContractAddress, params: PaperOpenParams) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(market, PAPER_OPEN_ACTION, serialized_params))
+    }
+
+    pub fn close_paper(market: ContractAddress, params: PaperCloseParams) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(market, PAPER_CLOSE_ACTION, serialized_params))
+    }
+
+    pub fn liquidate_paper(
+        market: ContractAddress,
+        params: PaperLiquidateParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(market, PAPER_LIQUIDATE_ACTION, serialized_params))
+    }
+
+    pub fn harvest_paper(
+        market: ContractAddress,
+        params: PaperHarvestParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(market, PAPER_HARVEST_ACTION, serialized_params))
+    }
+
+    pub fn stake_paper(market: ContractAddress, params: PaperStakeParams) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(market, PAPER_STAKE_ACTION, serialized_params))
+    }
+
+    pub fn unstake_paper(
+        market: ContractAddress,
+        params: PaperUnstakeParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(market, PAPER_UNSTAKE_ACTION, serialized_params))
+    }
+
+    pub fn claim_paper(market: ContractAddress, params: PaperClaimParams) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(market, PAPER_CLAIM_ACTION, serialized_params))
+    }
+
+    pub fn push_paper_fees(
+        market: ContractAddress,
+        params: PaperPushFeesParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(market, PAPER_PUSH_FEES_ACTION, serialized_params))
+    }
+
+    pub fn get_paper_market(
+        market: ContractAddress,
+        params: GetPaperMarketParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(market, PAPER_GET_MARKET_ACTION, serialized_params))
+    }
+
+    pub fn get_paper_account(
+        market: ContractAddress,
+        params: GetPaperAccountParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(market, PAPER_GET_ACCOUNT_ACTION, serialized_params))
+    }
+
+    pub fn get_paper_lp(market: ContractAddress, params: GetPaperLpParams) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(market, PAPER_GET_LP_ACTION, serialized_params))
+    }
+
+    pub fn get_paper_position(
+        market: ContractAddress,
+        params: GetPaperPositionParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(
+            market,
+            PAPER_GET_POSITION_ACTION,
+            serialized_params,
+        ))
+    }
+
+    pub fn get_paper_queue(
+        market: ContractAddress,
+        params: GetPaperQueueParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(market, PAPER_GET_QUEUE_ACTION, serialized_params))
+    }
+
+    pub fn get_paper_stake(
+        market: ContractAddress,
+        params: GetPaperStakeParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(market, PAPER_GET_STAKE_ACTION, serialized_params))
     }
 
     pub fn create_amm_pool(params: AmmCreatePoolParams) -> SdkResult<Action> {

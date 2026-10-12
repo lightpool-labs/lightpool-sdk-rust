@@ -192,3 +192,125 @@ pub struct GetVaultPortfolio {
     pub account: Address,
     pub assets: Vec<GetVaultPortfolioAsset>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GetPaperMarketParams {}
+
+pub const PAPER_GET_MARKET_ACTION: Name = name!("get_mkt");
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GetPaperAccountParams {}
+
+pub const PAPER_GET_ACCOUNT_ACTION: Name = name!("get_acct");
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GetPaperLpParams {}
+
+pub const PAPER_GET_LP_ACTION: Name = name!("get_lp");
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetPaperPositionParams {
+    pub position: u64,
+}
+
+pub const PAPER_GET_POSITION_ACTION: Name = name!("get_pos");
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GetPaperQueueParams {}
+
+pub const PAPER_GET_QUEUE_ACTION: Name = name!("get_queue");
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GetPaperStakeParams {}
+
+pub const PAPER_GET_STAKE_ACTION: Name = name!("get_stake");
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetPaperInstrument {
+    pub id: u32,
+    pub name: CompactString,
+    pub price_market: ContractAddress,
+    pub max_leverage: u64,
+    pub min_margin: u64,
+    pub min_notional: u64,
+    pub max_notional: u64,
+    pub long_cap: u64,
+    pub short_cap: u64,
+    pub long_oi: u64,
+    pub short_oi: u64,
+    pub retired: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetPaperMarket {
+    pub admin: Address,
+    pub quote_token: ContractAddress,
+    pub paper_token: Option<ContractAddress>,
+    pub win_fee_ppm: u64,
+    pub loss_fee_ppm: u64,
+    pub staker_share_ppm: u64,
+    pub deadband_ppm: u64,
+    pub liq_buffer_ppm: u64,
+    pub flat_threshold: u64,
+    pub flat_rate_ppm: u64,
+    pub tail_decay_scale: u64,
+    pub staker_cap: u64,
+    pub max_oracle_staleness: u64,
+    pub next_position_index: u64,
+    pub instruments: Vec<GetPaperInstrument>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetPaperAccount {
+    pub available: u64,
+    pub queued: u64,
+    pub entry_head: u64,
+    pub entry_tail: u64,
+    pub queued_truncated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetPaperLp {
+    pub free_cash: u64,
+    pub side_bucket: u64,
+    pub tracked_lp: i128,
+    pub tail_hwm: u64,
+    pub queue_head: u64,
+    pub queue_tail: u64,
+    pub total_queued: u64,
+    pub staker_fee_acc: u64,
+    pub dev_fee_acc: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetPaperPosition {
+    pub index: u64,
+    pub owner: Address,
+    pub instrument: u32,
+    pub is_long: bool,
+    pub margin: u64,
+    pub notional: u64,
+    pub entry_price: u64,
+    pub bust_price: u64,
+    pub funded_from_queued: bool,
+    pub opened_at: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetPaperQueue {
+    pub queue_head: u64,
+    pub queue_tail: u64,
+    pub total_queued: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetPaperStake {
+    pub total_staked: u64,
+    pub acc_reward_per_share: u128,
+    pub reward_pool: u64,
+    pub pending_dev_fee: u64,
+    pub staked: u64,
+    pub reward_debt: u128,
+    pub claimable: u64,
+    pub pending_reward: u64,
+}

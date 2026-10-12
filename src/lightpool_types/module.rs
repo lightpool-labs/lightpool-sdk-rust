@@ -21,6 +21,7 @@ impl Module {
     pub const OPERATOR: Module = Module(0x09);
     pub const AMM: Module = Module(0x0a);
     pub const WHITELIST: Module = Module(0x0b);
+    pub const PAPER: Module = Module(0x0c);
 
     pub const fn new(value: u8) -> Self {
         Self(value)

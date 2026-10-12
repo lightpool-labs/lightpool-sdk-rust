@@ -106,6 +106,17 @@ pub struct MarketFeesClaimedEvent {
     pub amount: u64,
 }
 
+/// Spot oracle commit (stake-weighted median applied to market).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OracleCommittedEvent {
+    pub market_id: ObjectID,
+    pub round: u64,
+    pub oracle_price: u64,
+    pub mark_price: u64,
+    pub participating_stake: u64,
+    pub quorum_threshold: u64,
+}
+
 /// Order cancelled event structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrderCancelledEvent {

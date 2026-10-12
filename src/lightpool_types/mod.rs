@@ -29,6 +29,8 @@ pub mod amm_actions;
 pub mod amm_helpers;
 pub mod whitelist_actions;
 pub mod whitelist_helpers;
+pub mod paper_actions;
+pub mod paper_helpers;
 pub mod order_id;
 pub mod order_id_type;
 pub mod name_type;
@@ -113,6 +115,17 @@ pub use amm_actions::{
 pub use amm_helpers::amm_module_contract;
 pub use whitelist_actions::{CreateWhitelistParams, WhitelistAddParams, WhitelistRemoveParams};
 pub use whitelist_helpers::whitelist_module_contract;
+pub use paper_actions::{
+    PaperAddInstrumentParams, PaperClaimParams, PaperCloseParams, PaperCreateMarketParams,
+    PaperDepositParams, PaperHarvestParams, PaperLiquidateParams, PaperOpenParams,
+    PaperPushFeesParams, PaperSetInstrumentParams, PaperStakeParams, PaperUnstakeParams,
+    PaperWithdrawParams,
+};
+pub use paper_helpers::{
+    paper_account_id, paper_lp_id, paper_market_account, paper_market_contract, paper_market_id,
+    paper_module_contract, paper_position_id, paper_queue_entry_id, paper_stake_id,
+    paper_staking_id,
+};
 pub use order_id::{OrderId, parse_order_id};
 pub use order_id_type::OrderIdType;
 pub use name_type::Name;
@@ -173,3 +186,16 @@ pub const AMM_SWAP_ACTION: Name = name!("swap");
 pub const WHITELIST_CREATE_ACTION: Name = name!("create");
 pub const WHITELIST_ADD_ACTION: Name = name!("wl_add");
 pub const WHITELIST_REMOVE_ACTION: Name = name!("wl_remove");
+pub const PAPER_CREATE_ACTION: Name = name!("create");
+pub const PAPER_ADD_INS_ACTION: Name = name!("add_ins");
+pub const PAPER_SET_INS_ACTION: Name = name!("set_ins");
+pub const PAPER_DEPOSIT_ACTION: Name = name!("deposit");
+pub const PAPER_WITHDRAW_ACTION: Name = name!("wd");
+pub const PAPER_OPEN_ACTION: Name = name!("open");
+pub const PAPER_CLOSE_ACTION: Name = name!("close");
+pub const PAPER_LIQUIDATE_ACTION: Name = name!("liqd");
+pub const PAPER_HARVEST_ACTION: Name = name!("harvest");
+pub const PAPER_STAKE_ACTION: Name = name!("stake");
+pub const PAPER_UNSTAKE_ACTION: Name = name!("unstake");
+pub const PAPER_CLAIM_ACTION: Name = name!("claim");
+pub const PAPER_PUSH_FEES_ACTION: Name = name!("push_fees");

@@ -12,6 +12,7 @@ pub mod vault_events;
 pub mod bridge_events;
 pub mod margin_events;
 pub mod amm_events;
+pub mod paper_events;
 // pub mod perp_events;
 // pub mod spark_events;
 pub mod client;
@@ -64,6 +65,13 @@ pub use lightpool_types::{
     amm_module_contract, AmmCreatePoolParams, AmmAddLiquidityParams, AmmRemoveLiquidityParams,
     AmmSwapParams,
     whitelist_module_contract, CreateWhitelistParams, WhitelistAddParams, WhitelistRemoveParams,
+    paper_module_contract, paper_market_contract, paper_market_account, paper_market_id,
+    paper_lp_id, paper_staking_id, paper_account_id, paper_stake_id, paper_position_id,
+    paper_queue_entry_id,
+    PaperCreateMarketParams, PaperAddInstrumentParams, PaperSetInstrumentParams,
+    PaperDepositParams, PaperWithdrawParams, PaperOpenParams, PaperCloseParams,
+    PaperLiquidateParams, PaperHarvestParams, PaperStakeParams, PaperUnstakeParams,
+    PaperClaimParams, PaperPushFeesParams,
     OrderId, OrderIdType,
 };
 
@@ -78,6 +86,7 @@ pub use staking_events::*;
 pub use vault_events::*;
 pub use bridge_events::*;
 pub use amm_events::*;
+pub use paper_events::*;
 pub use types::{
     SubmitTransactionParams, SubmitTransactionResponse,
     RpcRequest, RpcResponse, RpcError,
