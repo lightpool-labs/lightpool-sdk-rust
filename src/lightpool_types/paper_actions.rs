@@ -72,7 +72,7 @@ pub struct PaperOpenParams {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaperCloseParams {
-    pub position: u64,
+    pub positions: Vec<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
