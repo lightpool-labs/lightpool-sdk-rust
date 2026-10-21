@@ -26,8 +26,8 @@ use crate::lightpool_types::{
     CreateWhitelistParams, WhitelistAddParams, WhitelistRemoveParams,
     PaperAddInstrumentParams, PaperClaimParams, PaperCloseParams, PaperCreateMarketParams,
     PaperDepositParams, PaperHarvestParams, PaperLiquidateParams, PaperOpenParams,
-    PaperPushFeesParams, PaperSetInstrumentParams, PaperStakeParams, PaperUnstakeParams,
-    PaperWithdrawParams,
+    PaperPushFeesParams, PaperSetAmmParams, PaperSetInstrumentParams, PaperStakeParams,
+    PaperUnstakeParams, PaperWithdrawParams,
 };
 use crate::lightpool_types::call::{
     GetMarketInfoParams, GetOrderBookParams, GetTokenInfoParams, GetBalanceParams,
@@ -52,10 +52,10 @@ use crate::lightpool_types::{
     BRIDGE_CONFIRM_DEP_ACTION, BRIDGE_WITHDRAW_ACTION, SET_AGENT_ACTION,
     AMM_CREATE_POOL_ACTION, AMM_ADD_LIQ_ACTION, AMM_REMOVE_LIQ_ACTION, AMM_SWAP_ACTION,
     WHITELIST_CREATE_ACTION, WHITELIST_ADD_ACTION, WHITELIST_REMOVE_ACTION,
-    PAPER_CREATE_ACTION, PAPER_ADD_INS_ACTION, PAPER_SET_INS_ACTION, PAPER_DEPOSIT_ACTION,
-    PAPER_WITHDRAW_ACTION, PAPER_OPEN_ACTION, PAPER_CLOSE_ACTION, PAPER_LIQUIDATE_ACTION,
-    PAPER_HARVEST_ACTION, PAPER_STAKE_ACTION, PAPER_UNSTAKE_ACTION, PAPER_CLAIM_ACTION,
-    PAPER_PUSH_FEES_ACTION,
+    PAPER_CREATE_ACTION, PAPER_ADD_INS_ACTION, PAPER_SET_INS_ACTION, PAPER_SET_AMM_ACTION,
+    PAPER_DEPOSIT_ACTION, PAPER_WITHDRAW_ACTION, PAPER_OPEN_ACTION, PAPER_CLOSE_ACTION,
+    PAPER_LIQUIDATE_ACTION, PAPER_HARVEST_ACTION, PAPER_STAKE_ACTION, PAPER_UNSTAKE_ACTION,
+    PAPER_CLAIM_ACTION, PAPER_PUSH_FEES_ACTION,
 };
 use crate::crypto::Signer;
 use crate::error::{SdkError, SdkResult};
@@ -721,6 +721,14 @@ impl ActionBuilder {
     ) -> SdkResult<Action> {
         let serialized_params = bincode::serialize(&params)?;
         Ok(Action::new(market, PAPER_SET_INS_ACTION, serialized_params))
+    }
+
+    pub fn set_paper_amm(
+        market: ContractAddress,
+        params: PaperSetAmmParams,
+    ) -> SdkResult<Action> {
+        let serialized_params = bincode::serialize(&params)?;
+        Ok(Action::new(market, PAPER_SET_AMM_ACTION, serialized_params))
     }
 
     pub fn deposit_paper(

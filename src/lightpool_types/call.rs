@@ -246,6 +246,7 @@ pub struct GetPaperMarket {
     pub admin: Address,
     pub quote_token: ContractAddress,
     pub paper_token: Option<ContractAddress>,
+    pub amm_pool: Option<ContractAddress>,
     pub win_fee_ppm: u64,
     pub loss_fee_ppm: u64,
     pub staker_share_ppm: u64,
@@ -280,6 +281,7 @@ pub struct GetPaperLp {
     pub total_queued: u64,
     pub staker_fee_acc: u64,
     pub dev_fee_acc: u64,
+    pub buyback_cash: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

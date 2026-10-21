@@ -52,6 +52,11 @@ pub struct PaperSetInstrumentParams {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaperSetAmmParams {
+    pub amm_pool: ContractAddress,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PaperDepositParams {
     pub amount: u64,
 }

@@ -20,6 +20,7 @@ pub struct PaperHouseAfter {
     pub queue_tail: u64,
     pub staker_fee_acc: u64,
     pub dev_fee_acc: u64,
+    pub buyback_cash: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,6 +37,12 @@ pub struct PaperInstrumentAddedEvent {
     pub instrument: u32,
     pub name: CompactString,
     pub price_market: ContractAddress,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaperAmmSetEvent {
+    pub market: ContractAddress,
+    pub amm_pool: ContractAddress,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,6 +110,8 @@ pub struct PaperFeesPushedEvent {
     pub staker_fee: u64,
     pub dev_fee: u64,
     pub swept: u64,
+    pub swept_stakers: u64,
+    pub swept_buyback: u64,
     pub house: PaperHouseAfter,
 }
 
@@ -159,6 +168,11 @@ pub fn extract_paper_instrument_added(
     receipt: &TransactionReceipt,
 ) -> Option<PaperInstrumentAddedEvent> {
     let data = find_call_event(receipt, "paper_instrument_added")?;
+    bincode::deserialize(data).ok()
+}
+
+pub fn extract_paper_amm_set(receipt: &TransactionReceipt) -> Option<PaperAmmSetEvent> {
+    let data = find_call_event(receipt, "paper_amm_set")?;
     bincode::deserialize(data).ok()
 }
 

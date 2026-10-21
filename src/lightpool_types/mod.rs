@@ -118,8 +118,8 @@ pub use whitelist_helpers::whitelist_module_contract;
 pub use paper_actions::{
     PaperAddInstrumentParams, PaperClaimParams, PaperCloseParams, PaperCreateMarketParams,
     PaperDepositParams, PaperHarvestParams, PaperLiquidateParams, PaperOpenParams,
-    PaperPushFeesParams, PaperSetInstrumentParams, PaperStakeParams, PaperUnstakeParams,
-    PaperWithdrawParams,
+    PaperPushFeesParams, PaperSetAmmParams, PaperSetInstrumentParams, PaperStakeParams,
+    PaperUnstakeParams, PaperWithdrawParams,
 };
 pub use paper_helpers::{
     paper_account_id, paper_lp_id, paper_market_account, paper_market_contract, paper_market_id,
@@ -189,6 +189,7 @@ pub const WHITELIST_REMOVE_ACTION: Name = name!("wl_remove");
 pub const PAPER_CREATE_ACTION: Name = name!("create");
 pub const PAPER_ADD_INS_ACTION: Name = name!("add_ins");
 pub const PAPER_SET_INS_ACTION: Name = name!("set_ins");
+pub const PAPER_SET_AMM_ACTION: Name = name!("set_amm");
 pub const PAPER_DEPOSIT_ACTION: Name = name!("deposit");
 pub const PAPER_WITHDRAW_ACTION: Name = name!("wd");
 pub const PAPER_OPEN_ACTION: Name = name!("open");

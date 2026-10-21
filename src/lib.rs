@@ -69,9 +69,9 @@ pub use lightpool_types::{
     paper_lp_id, paper_staking_id, paper_account_id, paper_stake_id, paper_position_id,
     paper_queue_entry_id,
     PaperCreateMarketParams, PaperAddInstrumentParams, PaperSetInstrumentParams,
-    PaperDepositParams, PaperWithdrawParams, PaperOpenParams, PaperCloseParams,
-    PaperLiquidateParams, PaperHarvestParams, PaperStakeParams, PaperUnstakeParams,
-    PaperClaimParams, PaperPushFeesParams,
+    PaperSetAmmParams, PaperDepositParams, PaperWithdrawParams, PaperOpenParams,
+    PaperCloseParams, PaperLiquidateParams, PaperHarvestParams, PaperStakeParams,
+    PaperUnstakeParams, PaperClaimParams, PaperPushFeesParams,
     OrderId, OrderIdType,
 };
 
